@@ -1,0 +1,60 @@
+name: 2FAuth
+options:
+  deploymentTarget:
+    iOS: "17.0"
+
+targets:
+  2FAuth:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: AppIcon.icon
+        buildPhase: resources
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
+        excludes:
+          - Info.plist
+    settings:
+      base:
+        DEVELOPMENT_TEAM: 64C39764NA
+        PRODUCT_BUNDLE_IDENTIFIER: com.ryanep.2fauth
+        PRODUCT_NAME: 2FAuth
+        PRODUCT_MODULE_NAME: TwoFAuth
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Resources/Info.plist
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        SWIFT_VERSION: 6.0
+    scheme:
+      testTargets:
+        - 2FAuthTests
+        - 2FAuthUITests
+
+  2FAuthTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/Unit
+    dependencies:
+      - target: 2FAuth
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ryanep.2fauthTests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: 6.0
+
+  2FAuthUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/UI
+    dependencies:
+      - target: 2FAuth
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ryanep.2fauthUITests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: 6.0
