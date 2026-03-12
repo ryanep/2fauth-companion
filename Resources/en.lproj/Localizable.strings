@@ -1,0 +1,61 @@
+"login.title" = "2FAuth Login";
+"login.section.server" = "Server";
+"login.base_url.placeholder" = "https://example.com";
+"login.api_key.placeholder" = "API Key";
+"login.button.submit" = "Log In";
+"login.error.api_key_required" = "API key is required.";
+"login.error.invalid_base_url" = "Enter a valid base URL (http:// or https://).";
+"login.warning.insecure_transport" = "Warning: HTTP connections are unencrypted. Use HTTPS when possible.";
+"login.error.secure_store_failed" = "Could not store credentials securely.";
+"login.error.invalid_credentials" = "Login failed. Check API key and server URL.";
+"login.error.server_unreachable" = "Could not reach server: %@";
+
+"accounts.title" = "Accounts";
+"accounts.search.prompt" = "Search accounts";
+"accounts.empty.title" = "No Accounts";
+"accounts.empty.message.initial" = "Sync to fetch your 2FA accounts.";
+"accounts.empty.message.search" = "No accounts match your search.";
+"accounts.unknown_service" = "Unknown Service";
+"accounts.otp.unsupported" = "Unsupported OTP type";
+"accounts.button.next" = "Next";
+"accounts.seconds_remaining" = "%ds";
+
+"settings.title" = "Settings";
+"settings.section.sync" = "Sync";
+"settings.server_url.label" = "Server URL";
+"settings.last_sync.label" = "Last Sync";
+"settings.section.session" = "Session";
+"settings.auto_lock.label" = "Auto-Lock";
+"settings.auto_lock.immediate" = "Immediately";
+"settings.auto_lock.30s" = "30 seconds";
+"settings.auto_lock.1m" = "1 minute";
+"settings.auto_lock.5m" = "5 minutes";
+"settings.logout.button" = "Log Out";
+"settings.logout.alert.title" = "Log Out?";
+"settings.logout.alert.cancel" = "Cancel";
+"settings.logout.alert.message" = "You will need your API key to sign back in.";
+"settings.last_sync.never" = "Never";
+"settings.server_url.not_set" = "Not set";
+"settings.section.about" = "About";
+"settings.app_version.label" = "App Version";
+"settings.app_version.unknown" = "Unknown";
+
+"lock.title" = "Unlock 2FAuth";
+"lock.button.biometric" = "Unlock with Biometrics";
+"privacy_shield.title" = "Protected";
+"tabs.accounts" = "Accounts";
+"tabs.settings" = "Settings";
+
+"sync.error.biometric_failed" = "Biometric unlock failed.";
+"sync.status.offline_mode" = "Offline mode: %@";
+"sync.status.session_expired" = "Session expired. Please log in again.";
+"sync.error.cache_clear_failed" = "Could not clear local cache.";
+"sync.error.server_error" = "Server error (%d)";
+"sync.error.generic_failed" = "Sync failed";
+
+"startup.error.title" = "Unable to Start App";
+"startup.error.model_container" = "The local data store could not be initialized. Please restart the app.";
+"startup.error.generic" = "The app could not finish startup. Please restart and try again.";
+"startup.error.reset_data" = "Reset Local Data";
+"startup.error.reset_success" = "Local data reset complete. Relaunch the app to continue.";
+"startup.error.reset_failed" = "Could not reset local data. Please restart the app and try again.";

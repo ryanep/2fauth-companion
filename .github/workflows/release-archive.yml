@@ -1,0 +1,77 @@
+name: Release Archive Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  archive:
+    name: Archive Release Build
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify release test-hook guardrail
+        run: swift "Scripts/check-release-test-hooks.swift"
+
+      - name: Install swift-format (if needed)
+        run: |
+          if command -v swift-format >/dev/null 2>&1 || xcrun --find swift-format >/dev/null 2>&1; then
+            exit 0
+          fi
+          brew install swift-format
+
+      - name: Verify Swift formatting
+        run: ./Scripts/check-swift-format.sh
+
+      - name: Install SwiftLint (if needed)
+        run: |
+          if command -v swiftlint >/dev/null 2>&1 || [ -x "/opt/homebrew/bin/swiftlint" ] || [ -x "/usr/local/bin/swiftlint" ]; then
+            exit 0
+          fi
+          brew install swiftlint
+
+      - name: Verify SwiftLint
+        run: ./Scripts/check-swiftlint.sh
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project "2FAuth.xcodeproj" \
+            -scheme "2FAuth" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=18.5" \
+            -only-testing:2FAuthTests \
+            | tee "$RUNNER_TEMP/xcodebuild-test.log"
+
+      - name: Archive (Release)
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project "2FAuth.xcodeproj" \
+            -scheme "2FAuth" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/2FAuth.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/xcodebuild-archive.log"
+
+      - name: Upload archive log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-archive-log
+          path: ${{ runner.temp }}/xcodebuild-archive.log
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-test-log
+          path: ${{ runner.temp }}/xcodebuild-test.log
