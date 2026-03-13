@@ -8,15 +8,14 @@ struct LockScreenView: View {
         VStack(spacing: 20) {
             Image(systemName: "faceid")
                 .font(.system(size: 48))
-            Text("lock.title")
+            Text("Unlock 2FAuth")
                 .font(.title2.bold())
-            Button("lock.button.biometric") {
+            Button("Unlock with Biometrics") {
                 Task {
                     await appModel.unlock()
                 }
             }
             .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("lock.unlock")
         }
         .padding()
         .onAppear {

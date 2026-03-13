@@ -17,9 +17,6 @@ xcuserdata/
 # Swift Package Manager
 .build/
 
-# Local git worktrees
-.worktrees/
-
 # Fastlane
 fastlane/report.xml
 fastlane/Preview.html

@@ -1,19 +1,18 @@
 import Foundation
 import Security
 
-final class KeychainSecretStore: SecretStore {
-    static let serviceIdentifier = "com.ryanep.2fauth.secretstore"
-    static let apiKeyAccountIdentifier = "api-key"
-    static let encryptionKeyAccountIdentifier = "encryption-key"
-    static let keychainAccessibilityValue = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
+final class SecretStore {
+    private let service = "com.ryanep.2fauth.secretstore"
+    private let apiKeyAccount = "api-key"
+    private let encryptionKeyAccount = "encryption-key"
 
     func saveAPIKey(_ value: String) throws {
         let data = Data(value.utf8)
-        try save(data: data, account: Self.apiKeyAccountIdentifier)
+        try save(data: data, account: apiKeyAccount)
     }
 
     func loadAPIKey() -> String? {
-        guard let data = load(account: Self.apiKeyAccountIdentifier) else {
+        guard let data = load(account: apiKeyAccount) else {
             return nil
         }
         return String(data: data, encoding: .utf8)
@@ -21,29 +20,29 @@ final class KeychainSecretStore: SecretStore {
 
     @discardableResult
     func deleteAPIKey() -> Bool {
-        delete(account: Self.apiKeyAccountIdentifier)
+        delete(account: apiKeyAccount)
     }
 
     func saveEncryptionKey(_ value: Data) throws {
-        try save(data: value, account: Self.encryptionKeyAccountIdentifier)
+        try save(data: value, account: encryptionKeyAccount)
     }
 
     func loadEncryptionKey() -> Data? {
-        load(account: Self.encryptionKeyAccountIdentifier)
+        load(account: encryptionKeyAccount)
     }
 
     @discardableResult
     func deleteEncryptionKey() -> Bool {
-        delete(account: Self.encryptionKeyAccountIdentifier)
+        delete(account: encryptionKeyAccount)
     }
 
     private func save(data: Data, account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.serviceIdentifier,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecAttrAccessible as String: Self.keychainAccessibilityValue,
-            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData as String: data
         ]
 
         SecItemDelete(query as CFDictionary)
@@ -57,10 +56,10 @@ final class KeychainSecretStore: SecretStore {
     private func load(account: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.serviceIdentifier,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
 
         var item: AnyObject?
@@ -75,8 +74,8 @@ final class KeychainSecretStore: SecretStore {
     private func delete(account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.serviceIdentifier,
-            kSecAttrAccount as String: account,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
         ]
 
         let status = SecItemDelete(query as CFDictionary)

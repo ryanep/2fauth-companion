@@ -1,10 +1,10 @@
 import CryptoKit
 import Foundation
 
-final class AESGCMCryptoStore: CryptoStore {
-    private let secretStore: any SecretStore
+final class CryptoStore {
+    private let secretStore: SecretStore
 
-    init(secretStore: any SecretStore) {
+    init(secretStore: SecretStore) {
         self.secretStore = secretStore
     }
 
@@ -37,10 +37,5 @@ final class AESGCMCryptoStore: CryptoStore {
             throw NSError(domain: "CryptoStore", code: -2)
         }
         return value
-    }
-
-    @discardableResult
-    func resetEncryptionKey() -> Bool {
-        secretStore.deleteEncryptionKey()
     }
 }
