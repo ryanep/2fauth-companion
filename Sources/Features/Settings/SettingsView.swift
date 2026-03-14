@@ -1,14 +1,15 @@
+import Foundation
 import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var appModel: AppModel
-
-    private var backgroundSyncBinding: Binding<Int> {
-        Binding(
-            get: { appModel.backgroundSyncIntervalMinutes },
-            set: { appModel.updateBackgroundSyncInterval(minutes: $0) }
-        )
-    }
+    @State private var showingLogoutConfirmation = false
+    private static let lastSyncFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     private var autoLockTimeoutBinding: Binding<Int> {
         Binding(
@@ -32,20 +33,23 @@ struct SettingsView: View {
         }
     }
 
+    private var lastSuccessfulSyncText: String {
+        guard let date = appModel.lastSuccessfulSyncAt else {
+            return "Never"
+        }
+        return Self.lastSyncFormatter.string(from: date)
+    }
+
+    private var serverURLText: String {
+        let value = appModel.baseURLInput.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        return value.isEmpty ? "Not set" : value
+    }
+
     var body: some View {
         Form {
-            Section("Background Sync") {
-                Stepper(
-                    value: backgroundSyncBinding,
-                    in: AppConfigStore.minimumBackgroundSyncIntervalMinutes...AppConfigStore.maximumBackgroundSyncIntervalMinutes,
-                    step: 5
-                ) {
-                    Text("Every \(appModel.backgroundSyncIntervalMinutes) minutes")
-                }
-
-                Text("iOS runs refresh tasks opportunistically, so actual timing may vary.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            Section("Sync") {
+                LabeledContent("Server URL", value: serverURLText)
+                LabeledContent("Last Sync", value: lastSuccessfulSyncText)
             }
 
             Section("Session") {
@@ -57,12 +61,20 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
 
                 Button("Log Out", role: .destructive) {
-                    Task {
-                        await appModel.logout()
-                    }
+                    showingLogoutConfirmation = true
                 }
             }
         }
         .navigationTitle("Settings")
+        .alert("Log Out?", isPresented: $showingLogoutConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Log Out", role: .destructive) {
+                Task {
+                    await appModel.logout()
+                }
+            }
+        } message: {
+            Text("You will need your API key to sign back in.")
+        }
     }
 }

@@ -37,7 +37,7 @@ final class BackgroundSyncManager {
 
     func scheduleAppRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
-        let minutes = configStore.backgroundSyncIntervalMinutes
+        let minutes = AppConfigStore.backgroundSyncIntervalMinutes
         request.earliestBeginDate = Date(timeIntervalSinceNow: TimeInterval(minutes * 60))
         do {
             try BGTaskScheduler.shared.submit(request)

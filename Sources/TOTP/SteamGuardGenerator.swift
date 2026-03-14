@@ -30,8 +30,10 @@ enum SteamGuardGenerator {
         }
 
         var code =
-            (UInt32(hash[offset]) & 0x7f) << 24 | (UInt32(hash[offset + 1]) & 0xff) << 16
-            | (UInt32(hash[offset + 2]) & 0xff) << 8 | (UInt32(hash[offset + 3]) & 0xff)
+            (UInt32(hash[offset]) & 0x7f) << 24 |
+            (UInt32(hash[offset + 1]) & 0xff) << 16 |
+            (UInt32(hash[offset + 2]) & 0xff) << 8 |
+            (UInt32(hash[offset + 3]) & 0xff)
 
         var result = ""
         for _ in 0..<5 {

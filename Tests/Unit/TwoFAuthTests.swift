@@ -14,8 +14,8 @@ final class TwoFAuthTests: XCTestCase {
     func testHOTPVector() {
         let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
-        let otp0 = TOTPGenerator.generate(secret: secret, digits: 6, counter: 0)
-        let otp1 = TOTPGenerator.generate(secret: secret, digits: 6, counter: 1)
+        let otp0 = HOTPGenerator.generate(secret: secret, digits: 6, counter: 0)
+        let otp1 = HOTPGenerator.generate(secret: secret, digits: 6, counter: 1)
 
         XCTAssertEqual(otp0, "755224")
         XCTAssertEqual(otp1, "287082")

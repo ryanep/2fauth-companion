@@ -4,13 +4,11 @@ final class AppConfigStore {
     private enum Keys {
         static let baseURL = "config.baseURL"
         static let requiresRelogin = "config.requiresRelogin"
-        static let backgroundSyncIntervalMinutes = "config.backgroundSyncIntervalMinutes"
         static let autoLockTimeoutSeconds = "config.autoLockTimeoutSeconds"
+        static let lastSuccessfulSyncAt = "config.lastSuccessfulSyncAt"
     }
 
-    static let defaultBackgroundSyncIntervalMinutes = 15
-    static let minimumBackgroundSyncIntervalMinutes = 5
-    static let maximumBackgroundSyncIntervalMinutes = 240
+    static let backgroundSyncIntervalMinutes = 15
     static let defaultAutoLockTimeoutSeconds = 0
     static let autoLockTimeoutOptionsSeconds = [0, 30, 60, 300]
 
@@ -30,17 +28,6 @@ final class AppConfigStore {
         set { defaults.set(newValue, forKey: Keys.requiresRelogin) }
     }
 
-    var backgroundSyncIntervalMinutes: Int {
-        get {
-            let storedValue = defaults.integer(forKey: Keys.backgroundSyncIntervalMinutes)
-            let candidate = storedValue == 0 ? Self.defaultBackgroundSyncIntervalMinutes : storedValue
-            return Self.clampSyncInterval(candidate)
-        }
-        set {
-            defaults.set(Self.clampSyncInterval(newValue), forKey: Keys.backgroundSyncIntervalMinutes)
-        }
-    }
-
     var autoLockTimeoutSeconds: Int {
         get {
             let storedValue = defaults.integer(forKey: Keys.autoLockTimeoutSeconds)
@@ -51,8 +38,9 @@ final class AppConfigStore {
         }
     }
 
-    private static func clampSyncInterval(_ value: Int) -> Int {
-        min(max(value, minimumBackgroundSyncIntervalMinutes), maximumBackgroundSyncIntervalMinutes)
+    var lastSuccessfulSyncAt: Date? {
+        get { defaults.object(forKey: Keys.lastSuccessfulSyncAt) as? Date }
+        set { defaults.set(newValue, forKey: Keys.lastSuccessfulSyncAt) }
     }
 
     static func normalizeAutoLockTimeout(_ value: Int) -> Int {

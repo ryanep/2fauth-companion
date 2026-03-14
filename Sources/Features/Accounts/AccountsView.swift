@@ -13,7 +13,11 @@ struct AccountsView: View {
     var body: some View {
         List(filteredAccounts) { account in
             AccountRowView(account: account)
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
         }
+        .listStyle(.plain)
         .overlay {
             if filteredAccounts.isEmpty {
                 ContentUnavailableView(
@@ -93,12 +97,12 @@ private struct AccountRowView: View {
                 if isTimeBasedCode {
                     Text(otpCode)
                         .font(.title3.monospacedDigit().weight(.semibold))
-                        .privacySensitive()
+                        .foregroundStyle(didCopyCode ? .green : .primary)
                 } else if otpType == "hotp" {
                     HStack(spacing: 8) {
                         Text(otpCode)
                             .font(.title3.monospacedDigit().weight(.semibold))
-                            .privacySensitive()
+                            .foregroundStyle(didCopyCode ? .green : .primary)
 
                         Button("Next") {
                             otpCode = appModel.generateHOTP(for: account) ?? "------"
@@ -112,11 +116,6 @@ private struct AccountRowView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if didCopyCode {
-                    Text("Copied")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                }
             }
 
             Spacer(minLength: 8)
@@ -143,7 +142,16 @@ private struct AccountRowView: View {
                 .frame(width: 34, height: 34)
             }
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.secondary.opacity(0.12))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.green.opacity(didCopyCode ? 0.5 : 0), lineWidth: 1.5)
+                .animation(.easeInOut(duration: 0.2), value: didCopyCode)
+        }
         .contentShape(Rectangle())
         .onTapGesture {
             handleCopyCodeTap()
@@ -214,11 +222,17 @@ private struct AccountRowView: View {
         }
 
         copyCodeToClipboard()
-        didCopyCode = true
+        withAnimation(.easeOut(duration: 0.2)) {
+            didCopyCode = true
+        }
 
         Task {
             try? await Task.sleep(for: .seconds(1.2))
-            didCopyCode = false
+            await MainActor.run {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    didCopyCode = false
+                }
+            }
         }
     }
 

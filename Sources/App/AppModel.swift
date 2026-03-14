@@ -18,8 +18,8 @@ final class AppModel: ObservableObject {
     @Published var loginError: String?
     @Published var syncMessage: String?
     @Published var isSyncing: Bool = false
-    @Published var backgroundSyncIntervalMinutes: Int
     @Published var autoLockTimeoutSeconds: Int
+    @Published var lastSuccessfulSyncAt: Date?
 
     private let modelContext: ModelContext
     private let configStore: AppConfigStore
@@ -31,6 +31,10 @@ final class AppModel: ObservableObject {
     private var unlockedState: SessionState = .unlocked
     private var backgroundedAt: Date?
     private var isUnlockInProgress = false
+
+    var requiresOnboarding: Bool {
+        !hasSessionConfiguration
+    }
 
     init(
         modelContext: ModelContext,
@@ -45,11 +49,18 @@ final class AppModel: ObservableObject {
         self.repository = repository
         self.scheduleBackgroundRefresh = scheduleBackgroundRefresh
         self.baseURLInput = configStore.baseURLString ?? ""
-        self.backgroundSyncIntervalMinutes = configStore.backgroundSyncIntervalMinutes
         self.autoLockTimeoutSeconds = configStore.autoLockTimeoutSeconds
+        self.lastSuccessfulSyncAt = configStore.lastSuccessfulSyncAt
     }
 
     func bootstrap() async {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["UI_TEST_START_UNLOCKED"] == "1" {
+            unlockedState = .unlocked
+            sessionState = .unlocked
+            return
+        }
+
         baseURLInput = configStore.baseURLString ?? ""
 
         if configStore.requiresRelogin {
@@ -57,7 +68,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        if secretStore.loadAPIKey() != nil {
+        if hasSessionConfiguration {
             sessionState = .locked
         } else {
             sessionState = .loggedOut
@@ -94,6 +105,9 @@ final class AppModel: ObservableObject {
             do {
                 try secretStore.saveAPIKey(apiKey)
                 try repository.ensureEncryptionKey()
+                let syncedAt = Date()
+                configStore.lastSuccessfulSyncAt = syncedAt
+                lastSuccessfulSyncAt = syncedAt
                 unlockedState = .unlocked
                 sessionState = .unlocked
                 scheduleBackgroundRefresh()
@@ -109,6 +123,11 @@ final class AppModel: ObservableObject {
 
     func unlock() async {
         guard sessionState == .locked, !isUnlockInProgress else {
+            return
+        }
+
+        guard hasSessionConfiguration else {
+            sessionState = .loggedOut
             return
         }
 
@@ -135,6 +154,9 @@ final class AppModel: ObservableObject {
 
     func syncNow() async {
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
+            if sessionState == .unlocked || sessionState == .degradedOffline {
+                sessionState = .loggedOut
+            }
             return
         }
 
@@ -149,6 +171,9 @@ final class AppModel: ObservableObject {
 
         switch result {
         case .success:
+            let syncedAt = Date()
+            configStore.lastSuccessfulSyncAt = syncedAt
+            lastSuccessfulSyncAt = syncedAt
             unlockedState = .unlocked
             if sessionState != .locked {
                 sessionState = .unlocked
@@ -166,20 +191,10 @@ final class AppModel: ObservableObject {
     }
 
     func logout() async {
-        await wipeAllData(requireRelogin: false)
         sessionState = .loggedOut
         loginError = nil
         syncMessage = nil
-    }
-
-    func updateBackgroundSyncInterval(minutes: Int) {
-        let clamped = min(
-            max(minutes, AppConfigStore.minimumBackgroundSyncIntervalMinutes),
-            AppConfigStore.maximumBackgroundSyncIntervalMinutes
-        )
-        backgroundSyncIntervalMinutes = clamped
-        configStore.backgroundSyncIntervalMinutes = clamped
-        scheduleBackgroundRefresh()
+        await wipeAllData(requireRelogin: false)
     }
 
     func updateAutoLockTimeout(seconds: Int) {
@@ -226,7 +241,7 @@ final class AppModel: ObservableObject {
             let secret = try repository.decryptSecret(encryptedSecret)
             let digits = account.digits ?? 6
             let counter = UInt64(max(account.counter ?? 0, 0))
-            let code = TOTPGenerator.generate(secret: secret, digits: digits, counter: counter)
+            let code = HOTPGenerator.generate(secret: secret, digits: digits, counter: counter)
             account.counter = Int(counter + 1)
             try modelContext.save()
             return code
@@ -267,7 +282,11 @@ final class AppModel: ObservableObject {
         guard let value = configStore.baseURLString else {
             return nil
         }
-        return URL(string: value)
+        return validatedBaseURL(from: value)
+    }
+
+    private var hasSessionConfiguration: Bool {
+        configuredBaseURL() != nil && secretStore.loadAPIKey() != nil
     }
 
     private func normalizedOTPType(_ raw: String) -> String {
@@ -285,12 +304,17 @@ final class AppModel: ObservableObject {
     }
 
     private func enforceReloginWipe() async {
+        sessionState = .reloginRequired
         await wipeAllData(requireRelogin: true)
         syncMessage = "Session expired. Please log in again."
-        sessionState = .reloginRequired
     }
 
     private func wipeAllData(requireRelogin: Bool) async {
+        let environment = ProcessInfo.processInfo.environment
+        if let delayMS = UInt64(environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
+            try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
+        }
+
         do {
             try repository.wipeCachedData(context: modelContext)
         } catch {
@@ -301,6 +325,8 @@ final class AppModel: ObservableObject {
         _ = secretStore.deleteEncryptionKey()
 
         configStore.requiresRelogin = requireRelogin
+        configStore.lastSuccessfulSyncAt = nil
+        lastSuccessfulSyncAt = nil
         baseURLInput = configStore.baseURLString ?? ""
         unlockedState = .unlocked
     }

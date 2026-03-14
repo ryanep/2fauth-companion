@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var appModel: AppModel
+    @State private var suppressShieldUntil: Date?
 
     var body: some View {
         ZStack {
@@ -13,7 +14,11 @@ struct ContentView: View {
                 case .locked:
                     LockScreenView()
                 case .unlocked, .degradedOffline:
-                    MainTabView()
+                    if appModel.requiresOnboarding {
+                        LoginView()
+                    } else {
+                        MainTabView()
+                    }
                 }
             }
 
@@ -30,9 +35,19 @@ struct ContentView: View {
                 .foregroundStyle(.white)
             }
         }
+        .onChange(of: appModel.sessionState) { _, newState in
+            guard newState == .unlocked || newState == .degradedOffline else {
+                return
+            }
+            suppressShieldUntil = Date().addingTimeInterval(2)
+        }
     }
 
     private var shouldShowPrivacyShield: Bool {
+        if let suppressShieldUntil, Date() < suppressShieldUntil {
+            return false
+        }
+
         guard scenePhase != .active else {
             return false
         }
