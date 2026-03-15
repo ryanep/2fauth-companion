@@ -5,7 +5,6 @@
 "login.button.submit" = "Log In";
 "login.error.api_key_required" = "API key is required.";
 "login.error.invalid_base_url" = "Enter a valid base URL (http:// or https://).";
-"login.warning.insecure_transport" = "Warning: HTTP connections are unencrypted. Use HTTPS when possible.";
 "login.error.secure_store_failed" = "Could not store credentials securely.";
 "login.error.invalid_credentials" = "Login failed. Check API key and server URL.";
 "login.error.server_unreachable" = "Could not reach server: %@";
@@ -36,9 +35,6 @@
 "settings.logout.alert.message" = "You will need your API key to sign back in.";
 "settings.last_sync.never" = "Never";
 "settings.server_url.not_set" = "Not set";
-"settings.section.about" = "About";
-"settings.app_version.label" = "App Version";
-"settings.app_version.unknown" = "Unknown";
 
 "lock.title" = "Unlock 2FAuth";
 "lock.button.biometric" = "Unlock with Biometrics";
@@ -52,10 +48,3 @@
 "sync.error.cache_clear_failed" = "Could not clear local cache.";
 "sync.error.server_error" = "Server error (%d)";
 "sync.error.generic_failed" = "Sync failed";
-
-"startup.error.title" = "Unable to Start App";
-"startup.error.model_container" = "The local data store could not be initialized. Please restart the app.";
-"startup.error.generic" = "The app could not finish startup. Please restart and try again.";
-"startup.error.reset_data" = "Reset Local Data";
-"startup.error.reset_success" = "Local data reset complete. Relaunch the app to continue.";
-"startup.error.reset_failed" = "Could not reset local data. Please restart the app and try again.";

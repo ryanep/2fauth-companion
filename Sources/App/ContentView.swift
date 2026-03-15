@@ -29,7 +29,7 @@ struct ContentView: View {
                 VStack(spacing: 10) {
                     Image(systemName: "lock.fill")
                         .font(.title2)
-                    Text("Protected")
+                    Text("privacy_shield.title")
                         .font(.headline)
                 }
                 .foregroundStyle(.white)

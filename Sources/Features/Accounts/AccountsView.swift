@@ -21,14 +21,14 @@ struct AccountsView: View {
         .overlay {
             if filteredAccounts.isEmpty {
                 ContentUnavailableView(
-                    "No Accounts",
+                    "accounts.empty.title",
                     systemImage: "shield",
                     description: Text(emptyStateMessage)
                 )
             }
         }
-        .navigationTitle("Accounts")
-        .searchable(text: $searchText, prompt: "Search accounts")
+        .navigationTitle("accounts.title")
+        .searchable(text: $searchText, prompt: Text("accounts.search.prompt"))
         .refreshable {
             await appModel.syncNow()
         }
@@ -43,6 +43,7 @@ struct AccountsView: View {
         .task {
             await appModel.syncNow()
         }
+        .accessibilityIdentifier("accounts.screen")
     }
 
     private var filteredAccounts: [AccountEntity] {
@@ -62,8 +63,8 @@ struct AccountsView: View {
 
     private var emptyStateMessage: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "Sync to fetch your 2FA accounts."
-            : "No accounts match your search."
+            ? String(localized: "accounts.empty.message.initial")
+            : String(localized: "accounts.empty.message.search")
     }
 }
 
@@ -87,7 +88,7 @@ private struct AccountRowView: View {
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(account.service ?? "Unknown Service")
+                Text(account.service ?? String(localized: "accounts.unknown_service"))
                     .font(.headline)
 
                 Text(account.account)
@@ -104,14 +105,14 @@ private struct AccountRowView: View {
                             .font(.title3.monospacedDigit().weight(.semibold))
                             .foregroundStyle(didCopyCode ? .green : .primary)
 
-                        Button("Next") {
+                        Button("accounts.button.next") {
                             otpCode = appModel.generateHOTP(for: account) ?? "------"
                             triggerLightHaptic()
                         }
                         .buttonStyle(.bordered)
                     }
                 } else {
-                    Text("Unsupported OTP type")
+                    Text("accounts.otp.unsupported")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -135,7 +136,12 @@ private struct AccountRowView: View {
                         .rotationEffect(.degrees(-90))
                         .animation(.linear(duration: 0.25), value: progress)
 
-                    Text("\(secondsRemaining)s")
+                    Text(
+                        String.localizedStringWithFormat(
+                            String(localized: "accounts.seconds_remaining"),
+                            secondsRemaining
+                        )
+                    )
                         .font(.caption2.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.secondary)
                 }

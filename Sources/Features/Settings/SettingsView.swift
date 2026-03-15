@@ -21,60 +21,63 @@ struct SettingsView: View {
     private func autoLockLabel(for seconds: Int) -> String {
         switch seconds {
         case 0:
-            return "Immediately"
+            return String(localized: "settings.auto_lock.immediate")
         case 30:
-            return "30 seconds"
+            return String(localized: "settings.auto_lock.30s")
         case 60:
-            return "1 minute"
+            return String(localized: "settings.auto_lock.1m")
         case 300:
-            return "5 minutes"
+            return String(localized: "settings.auto_lock.5m")
         default:
-            return "Immediately"
+            return String(localized: "settings.auto_lock.immediate")
         }
     }
 
     private var lastSuccessfulSyncText: String {
         guard let date = appModel.lastSuccessfulSyncAt else {
-            return "Never"
+            return String(localized: "settings.last_sync.never")
         }
         return Self.lastSyncFormatter.string(from: date)
     }
 
     private var serverURLText: String {
         let value = appModel.baseURLInput.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return value.isEmpty ? "Not set" : value
+        return value.isEmpty ? String(localized: "settings.server_url.not_set") : value
     }
 
     var body: some View {
         Form {
-            Section("Sync") {
-                LabeledContent("Server URL", value: serverURLText)
-                LabeledContent("Last Sync", value: lastSuccessfulSyncText)
+            Section("settings.section.sync") {
+                LabeledContent("settings.server_url.label", value: serverURLText)
+                LabeledContent("settings.last_sync.label", value: lastSuccessfulSyncText)
             }
 
-            Section("Session") {
-                Picker("Auto-Lock", selection: autoLockTimeoutBinding) {
+            Section("settings.section.session") {
+                Picker("settings.auto_lock.label", selection: autoLockTimeoutBinding) {
                     ForEach(AppConfigStore.autoLockTimeoutOptionsSeconds, id: \.self) { seconds in
                         Text(autoLockLabel(for: seconds)).tag(seconds)
                     }
                 }
                 .pickerStyle(.menu)
 
-                Button("Log Out", role: .destructive) {
+                Button("settings.logout.button", role: .destructive) {
                     showingLogoutConfirmation = true
                 }
+                .accessibilityIdentifier("settings.logout")
             }
         }
-        .navigationTitle("Settings")
-        .alert("Log Out?", isPresented: $showingLogoutConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Log Out", role: .destructive) {
+        .navigationTitle("settings.title")
+        .alert("settings.logout.alert.title", isPresented: $showingLogoutConfirmation) {
+            Button("settings.logout.alert.cancel", role: .cancel) {}
+            Button("settings.logout.button", role: .destructive) {
                 Task {
                     await appModel.logout()
                 }
             }
+            .accessibilityIdentifier("settings.logout.confirm")
         } message: {
-            Text("You will need your API key to sign back in.")
+            Text("settings.logout.alert.message")
         }
+        .accessibilityIdentifier("settings.screen")
     }
 }

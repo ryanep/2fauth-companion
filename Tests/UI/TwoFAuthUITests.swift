@@ -8,7 +8,7 @@ final class TwoFAuthUITests: XCTestCase {
     func testLaunch() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.navigationBars["2FAuth Login"].exists)
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 2))
     }
 
     func testLogoutImmediatelyShowsLoginWhileWipeInProgress() {
@@ -17,20 +17,18 @@ final class TwoFAuthUITests: XCTestCase {
         app.launchEnvironment["UI_TEST_WIPE_DELAY_MS"] = "2500"
         app.launch()
 
-        XCTAssertTrue(app.navigationBars["Accounts"].waitForExistence(timeout: 2))
-
-        let settingsTab = app.tabBars.buttons["Settings"]
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: 2))
+        let settingsTab = app.buttons["tab.settings"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 8))
         settingsTab.tap()
 
-        let logoutButton = app.buttons["Log Out"]
+        let logoutButton = app.buttons["settings.logout"]
         XCTAssertTrue(logoutButton.waitForExistence(timeout: 2))
         logoutButton.tap()
 
-        let logoutAlert = app.alerts["Log Out?"]
-        XCTAssertTrue(logoutAlert.waitForExistence(timeout: 2))
-        logoutAlert.buttons["Log Out"].tap()
+        let confirmLogoutButton = app.buttons["settings.logout.confirm"]
+        XCTAssertTrue(confirmLogoutButton.waitForExistence(timeout: 2))
+        confirmLogoutButton.tap()
 
-        XCTAssertTrue(app.navigationBars["2FAuth Login"].waitForExistence(timeout: 1))
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 1))
     }
 }

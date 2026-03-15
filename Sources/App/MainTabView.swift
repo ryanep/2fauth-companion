@@ -16,15 +16,17 @@ struct MainTabView: View {
                 AccountsView()
             }
             .tabItem {
-                Label("Accounts", systemImage: "person.2")
+                Label("tabs.accounts", systemImage: "person.2")
             }
+            .accessibilityIdentifier("tab.accounts")
 
             NavigationStack {
                 SettingsView()
             }
             .tabItem {
-                Label("Settings", systemImage: "gearshape")
+                Label("tabs.settings", systemImage: "gearshape")
             }
+            .accessibilityIdentifier("tab.settings")
         }
     }
 }

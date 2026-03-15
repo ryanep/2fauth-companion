@@ -39,11 +39,16 @@ final class AccountRepository {
         } catch APIError.forbidden {
             return .unauthorized
         } catch APIError.server(let code) {
-            return .transient("Server error (\(code))")
+            return .transient(
+                String.localizedStringWithFormat(
+                    String(localized: "sync.error.server_error"),
+                    code
+                )
+            )
         } catch APIError.transport(let message) {
             return .transient(message)
         } catch {
-            return .transient("Sync failed")
+            return .transient(String(localized: "sync.error.generic_failed"))
         }
     }
 
