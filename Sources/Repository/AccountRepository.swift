@@ -39,11 +39,16 @@ final class AccountRepository {
         } catch APIError.forbidden {
             return .unauthorized
         } catch APIError.server(let code) {
-            return .transient("Server error (\(code))")
+            return .transient(
+                String.localizedStringWithFormat(
+                    String(localized: "sync.error.server_error"),
+                    code
+                )
+            )
         } catch APIError.transport(let message) {
             return .transient(message)
         } catch {
-            return .transient("Sync failed")
+            return .transient(String(localized: "sync.error.generic_failed"))
         }
     }
 
@@ -62,6 +67,8 @@ final class AccountRepository {
             byID[account.remoteID] = account
         }
 
+        var hasAnyMutation = false
+
         var seen: Set<Int> = []
         let now = Date()
         for remote in remoteAccounts {
@@ -70,46 +77,86 @@ final class AccountRepository {
             }
             seen.insert(id)
 
-            let entity = byID[id] ?? AccountEntity(
-                remoteID: id,
-                groupID: remote.groupID,
-                service: remote.service,
-                account: remote.account,
-                icon: remote.icon,
-                otpType: remote.otpType,
-                digits: remote.digits,
-                algorithm: remote.algorithm,
-                period: remote.period,
-                counter: remote.counter,
-                encryptedSecret: nil,
-                updatedAt: now
-            )
+            guard let entity = byID[id] else {
+                let insertedEntity = AccountEntity(
+                    remoteID: id,
+                    groupID: remote.groupID,
+                    service: remote.service,
+                    account: remote.account,
+                    icon: remote.icon,
+                    otpType: remote.otpType,
+                    digits: remote.digits,
+                    algorithm: remote.algorithm,
+                    period: remote.period,
+                    counter: remote.counter,
+                    encryptedSecret: nil,
+                    updatedAt: now
+                )
+                if let secret = remote.secret {
+                    insertedEntity.encryptedSecret = try cryptoStore.encrypt(secret)
+                }
 
-            entity.groupID = remote.groupID
-            entity.service = remote.service
-            entity.account = remote.account
-            entity.icon = remote.icon
-            entity.otpType = remote.otpType
-            entity.digits = remote.digits
-            entity.algorithm = remote.algorithm
-            entity.period = remote.period
-            entity.counter = remote.counter
-            entity.updatedAt = now
-
-            if let secret = remote.secret {
-                entity.encryptedSecret = try cryptoStore.encrypt(secret)
+                context.insert(insertedEntity)
+                byID[id] = insertedEntity
+                hasAnyMutation = true
+                continue
             }
 
-            if byID[id] == nil {
-                context.insert(entity)
-                byID[id] = entity
+            let metadataChanged =
+                entity.groupID != remote.groupID ||
+                entity.service != remote.service ||
+                entity.account != remote.account ||
+                entity.icon != remote.icon ||
+                entity.otpType != remote.otpType ||
+                entity.digits != remote.digits ||
+                entity.algorithm != remote.algorithm ||
+                entity.period != remote.period ||
+                entity.counter != remote.counter
+
+            var secretChanged = false
+            if let remoteSecret = remote.secret {
+                let shouldRewriteSecret: Bool
+                if let encryptedSecret = entity.encryptedSecret {
+                    if let localSecret = try? cryptoStore.decrypt(encryptedSecret) {
+                        shouldRewriteSecret = localSecret != remoteSecret
+                    } else {
+                        shouldRewriteSecret = true
+                    }
+                } else {
+                    shouldRewriteSecret = true
+                }
+
+                if shouldRewriteSecret {
+                    entity.encryptedSecret = try cryptoStore.encrypt(remoteSecret)
+                    secretChanged = true
+                }
+            }
+
+            if metadataChanged || secretChanged {
+                if metadataChanged {
+                    entity.groupID = remote.groupID
+                    entity.service = remote.service
+                    entity.account = remote.account
+                    entity.icon = remote.icon
+                    entity.otpType = remote.otpType
+                    entity.digits = remote.digits
+                    entity.algorithm = remote.algorithm
+                    entity.period = remote.period
+                    entity.counter = remote.counter
+                }
+
+                entity.updatedAt = now
+                hasAnyMutation = true
             }
         }
 
         for account in existing where !seen.contains(account.remoteID) {
             context.delete(account)
+            hasAnyMutation = true
         }
 
-        try context.save()
+        if hasAnyMutation {
+            try context.save()
+        }
     }
 }

@@ -7,16 +7,18 @@ struct LoginView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Server") {
-                    TextField("https://example.com", text: $appModel.baseURLInput)
+                Section("login.section.server") {
+                    TextField("login.base_url.placeholder", text: $appModel.baseURLInput)
                         .autocapitalization(.none)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .disableAutocorrection(true)
+                        .accessibilityIdentifier("login.baseURL")
 
-                    SecureField("API Key", text: $apiKey)
+                    SecureField("login.api_key.placeholder", text: $apiKey)
                         .textInputAutocapitalization(.never)
                         .disableAutocorrection(true)
+                        .accessibilityIdentifier("login.apiKey")
                 }
 
                 if let message = appModel.loginError {
@@ -36,13 +38,15 @@ struct LoginView: View {
                         if appModel.isSyncing {
                             ProgressView()
                         } else {
-                            Text("Log In")
+                            Text("login.button.submit")
                         }
                     }
                     .disabled(appModel.isSyncing)
+                    .accessibilityIdentifier("login.submit")
                 }
             }
-            .navigationTitle("2FAuth Login")
+            .navigationTitle("login.title")
+            .accessibilityIdentifier("login.screen")
         }
     }
 }

@@ -18,8 +18,8 @@ final class AppModel: ObservableObject {
     @Published var loginError: String?
     @Published var syncMessage: String?
     @Published var isSyncing: Bool = false
-    @Published var backgroundSyncIntervalMinutes: Int
     @Published var autoLockTimeoutSeconds: Int
+    @Published var lastSuccessfulSyncAt: Date?
 
     private let modelContext: ModelContext
     private let configStore: AppConfigStore
@@ -31,6 +31,10 @@ final class AppModel: ObservableObject {
     private var unlockedState: SessionState = .unlocked
     private var backgroundedAt: Date?
     private var isUnlockInProgress = false
+
+    var requiresOnboarding: Bool {
+        return !hasSessionConfiguration
+    }
 
     init(
         modelContext: ModelContext,
@@ -45,11 +49,18 @@ final class AppModel: ObservableObject {
         self.repository = repository
         self.scheduleBackgroundRefresh = scheduleBackgroundRefresh
         self.baseURLInput = configStore.baseURLString ?? ""
-        self.backgroundSyncIntervalMinutes = configStore.backgroundSyncIntervalMinutes
         self.autoLockTimeoutSeconds = configStore.autoLockTimeoutSeconds
+        self.lastSuccessfulSyncAt = configStore.lastSuccessfulSyncAt
     }
 
     func bootstrap() async {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["UI_TEST_START_UNLOCKED"] == "1" {
+            unlockedState = .unlocked
+            sessionState = .unlocked
+            return
+        }
+
         baseURLInput = configStore.baseURLString ?? ""
 
         if configStore.requiresRelogin {
@@ -57,7 +68,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        if secretStore.loadAPIKey() != nil {
+        if hasSessionConfiguration {
             sessionState = .locked
         } else {
             sessionState = .loggedOut
@@ -69,12 +80,12 @@ final class AppModel: ObservableObject {
         syncMessage = nil
 
         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            loginError = "API key is required."
+            loginError = String(localized: "login.error.api_key_required")
             return
         }
 
         guard let baseURL = validatedBaseURL(from: baseURLInput) else {
-            loginError = "Enter a valid base URL (http:// or https://)."
+            loginError = String(localized: "login.error.invalid_base_url")
             return
         }
 
@@ -94,21 +105,32 @@ final class AppModel: ObservableObject {
             do {
                 try secretStore.saveAPIKey(apiKey)
                 try repository.ensureEncryptionKey()
+                let syncedAt = Date()
+                configStore.lastSuccessfulSyncAt = syncedAt
+                lastSuccessfulSyncAt = syncedAt
                 unlockedState = .unlocked
                 sessionState = .unlocked
                 scheduleBackgroundRefresh()
             } catch {
-                loginError = "Could not store credentials securely."
+                loginError = String(localized: "login.error.secure_store_failed")
             }
         case .unauthorized:
-            loginError = "Login failed. Check API key and server URL."
+            loginError = String(localized: "login.error.invalid_credentials")
         case .transient(let reason):
-            loginError = "Could not reach server: \(reason)"
+            loginError = String.localizedStringWithFormat(
+                String(localized: "login.error.server_unreachable"),
+                reason
+            )
         }
     }
 
     func unlock() async {
         guard sessionState == .locked, !isUnlockInProgress else {
+            return
+        }
+
+        guard hasSessionConfiguration else {
+            sessionState = .loggedOut
             return
         }
 
@@ -118,7 +140,7 @@ final class AppModel: ObservableObject {
         }
 
         do {
-            let authenticated = try await biometricAuthenticator.authenticate(reason: "Unlock 2FAuth")
+            let authenticated = try await biometricAuthenticator.authenticate(reason: String(localized: "lock.title"))
             if authenticated {
                 sessionState = unlockedState
                 syncMessage = nil
@@ -129,12 +151,15 @@ final class AppModel: ObservableObject {
             {
                 return
             }
-            syncMessage = "Biometric unlock failed."
+            syncMessage = String(localized: "sync.error.biometric_failed")
         }
     }
 
     func syncNow() async {
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
+            if sessionState == .unlocked || sessionState == .degradedOffline {
+                sessionState = .loggedOut
+            }
             return
         }
 
@@ -149,6 +174,9 @@ final class AppModel: ObservableObject {
 
         switch result {
         case .success:
+            let syncedAt = Date()
+            configStore.lastSuccessfulSyncAt = syncedAt
+            lastSuccessfulSyncAt = syncedAt
             unlockedState = .unlocked
             if sessionState != .locked {
                 sessionState = .unlocked
@@ -161,25 +189,18 @@ final class AppModel: ObservableObject {
             if sessionState != .locked {
                 sessionState = .degradedOffline
             }
-            syncMessage = "Offline mode: \(reason)"
+            syncMessage = String.localizedStringWithFormat(
+                String(localized: "sync.status.offline_mode"),
+                reason
+            )
         }
     }
 
     func logout() async {
-        await wipeAllData(requireRelogin: false)
         sessionState = .loggedOut
         loginError = nil
         syncMessage = nil
-    }
-
-    func updateBackgroundSyncInterval(minutes: Int) {
-        let clamped = min(
-            max(minutes, AppConfigStore.minimumBackgroundSyncIntervalMinutes),
-            AppConfigStore.maximumBackgroundSyncIntervalMinutes
-        )
-        backgroundSyncIntervalMinutes = clamped
-        configStore.backgroundSyncIntervalMinutes = clamped
-        scheduleBackgroundRefresh()
+        await wipeAllData(requireRelogin: false)
     }
 
     func updateAutoLockTimeout(seconds: Int) {
@@ -267,7 +288,11 @@ final class AppModel: ObservableObject {
         guard let value = configStore.baseURLString else {
             return nil
         }
-        return URL(string: value)
+        return validatedBaseURL(from: value)
+    }
+
+    private var hasSessionConfiguration: Bool {
+        configuredBaseURL() != nil && secretStore.loadAPIKey() != nil
     }
 
     private func normalizedOTPType(_ raw: String) -> String {
@@ -285,22 +310,29 @@ final class AppModel: ObservableObject {
     }
 
     private func enforceReloginWipe() async {
-        await wipeAllData(requireRelogin: true)
-        syncMessage = "Session expired. Please log in again."
         sessionState = .reloginRequired
+        await wipeAllData(requireRelogin: true)
+        syncMessage = String(localized: "sync.status.session_expired")
     }
 
     private func wipeAllData(requireRelogin: Bool) async {
+        let environment = ProcessInfo.processInfo.environment
+        if let delayMS = UInt64(environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
+            try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
+        }
+
         do {
             try repository.wipeCachedData(context: modelContext)
         } catch {
-            syncMessage = "Could not clear local cache."
+            syncMessage = String(localized: "sync.error.cache_clear_failed")
         }
 
         _ = secretStore.deleteAPIKey()
         _ = secretStore.deleteEncryptionKey()
 
         configStore.requiresRelogin = requireRelogin
+        configStore.lastSuccessfulSyncAt = nil
+        lastSuccessfulSyncAt = nil
         baseURLInput = configStore.baseURLString ?? ""
         unlockedState = .unlocked
     }
