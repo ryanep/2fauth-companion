@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class AccountRepositoryTests: XCTestCase {
-    private let secretStore = SecretStore()
+    nonisolated(unsafe) private let secretStore = SecretStore()
 
     override func setUp() {
         super.setUp()

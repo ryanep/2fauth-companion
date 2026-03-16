@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class AppModelStateMachineTests: XCTestCase {
-    private let secretStore = SecretStore()
+    nonisolated(unsafe) private let secretStore = SecretStore()
 
     override func setUp() {
         super.setUp()
@@ -200,6 +200,100 @@ final class AppModelStateMachineTests: XCTestCase {
         )
 
         return (appModel, configStore, context)
+    }
+}
+
+@MainActor
+final class BackgroundSyncManagerBehaviorTests: XCTestCase {
+    nonisolated(unsafe) private let secretStore = SecretStore()
+
+    override func setUp() {
+        super.setUp()
+        _ = secretStore.deleteAPIKey()
+        _ = secretStore.deleteEncryptionKey()
+    }
+
+    override func tearDown() {
+        MockURLProtocol.requestHandler = nil
+        _ = secretStore.deleteAPIKey()
+        _ = secretStore.deleteEncryptionKey()
+        super.tearDown()
+    }
+
+    func testRunBackgroundSyncCancelledPreflightReturnsFalse() async throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+        try secretStore.saveAPIKey("api-key")
+
+        let result = await setup.manager.runBackgroundSync(isCancelled: { true })
+
+        XCTAssertFalse(result)
+    }
+
+    func testRunBackgroundSyncCancelledAfterNetworkReturnsFalse() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data("[]".utf8))
+        }
+
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+        try secretStore.saveAPIKey("api-key")
+
+        var checks = 0
+        let result = await setup.manager.runBackgroundSync(isCancelled: {
+            checks += 1
+            return checks >= 2
+        })
+
+        XCTAssertFalse(result)
+    }
+
+    func testRunBackgroundSyncUnauthorizedTriggersReloginAndWipesKey() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+        try secretStore.saveAPIKey("api-key")
+
+        let result = await setup.manager.runBackgroundSync(isCancelled: { false })
+
+        XCTAssertTrue(result)
+        XCTAssertTrue(setup.configStore.requiresRelogin)
+        XCTAssertNil(secretStore.loadAPIKey())
+    }
+
+    func testRunBackgroundSyncTransientReturnsTrue() async throws {
+        MockURLProtocol.requestHandler = { _ in
+            throw URLError(.timedOut)
+        }
+
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+        try secretStore.saveAPIKey("api-key")
+
+        let result = await setup.manager.runBackgroundSync(isCancelled: { false })
+
+        XCTAssertTrue(result)
+        XCTAssertFalse(setup.configStore.requiresRelogin)
+        XCTAssertNotNil(secretStore.loadAPIKey())
+    }
+
+    private func makeSUT(testName: String) throws -> (manager: BackgroundSyncManager, configStore: AppConfigStore) {
+        let container = try makeInMemoryModelContainer()
+        let configStore = makeTestConfigStore(testName: testName)
+        let apiClient = APIClient(session: makeMockedURLSession())
+        let repository = AccountRepository(apiClient: apiClient, cryptoStore: CryptoStore(secretStore: secretStore))
+        let manager = BackgroundSyncManager(
+            modelContainer: container,
+            configStore: configStore,
+            secretStore: secretStore,
+            repository: repository
+        )
+        return (manager, configStore)
     }
 }
 
