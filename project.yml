@@ -9,6 +9,8 @@ targets:
     platform: iOS
     deploymentTarget: "17.0"
     sources:
+      - path: AppIcon.icon
+        buildPhase: resources
       - path: Sources
       - path: Resources
         buildPhase: resources
@@ -16,6 +18,7 @@ targets:
           - Info.plist
     settings:
       base:
+        DEVELOPMENT_TEAM: 64C39764NA
         PRODUCT_BUNDLE_IDENTIFIER: com.ryanep.2fauth
         PRODUCT_NAME: 2FAuth
         PRODUCT_MODULE_NAME: TwoFAuth

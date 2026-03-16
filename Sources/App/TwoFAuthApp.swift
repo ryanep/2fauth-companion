@@ -4,33 +4,28 @@ import SwiftUI
 @main
 struct TwoFAuthApp: App {
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var appModel: AppModel
-    private let backgroundSyncManager: BackgroundSyncManager
-    private let modelContainer: ModelContainer
+    private let appModel: AppModel?
+    private let backgroundSyncManager: BackgroundSyncManager?
+    private let modelContainer: ModelContainer?
+    private let startupErrorMessage: String?
 
     init() {
-        let container: ModelContainer
         do {
-            container = try ModelContainer(for: AccountEntity.self)
-        } catch {
-            fatalError("Failed to create ModelContainer: \(error)")
-        }
+            let container = try ModelContainer(for: AccountEntity.self)
+            let configStore = AppConfigStore()
+            let secretStore = SecretStore()
+            let cryptoStore = CryptoStore(secretStore: secretStore)
+            let repository = AccountRepository(apiClient: APIClient(), cryptoStore: cryptoStore)
+            let backgroundManager = BackgroundSyncManager(
+                modelContainer: container,
+                configStore: configStore,
+                secretStore: secretStore,
+                repository: repository
+            )
 
-        let configStore = AppConfigStore()
-        let secretStore = SecretStore()
-        let cryptoStore = CryptoStore(secretStore: secretStore)
-        let repository = AccountRepository(apiClient: APIClient(), cryptoStore: cryptoStore)
-        let backgroundManager = BackgroundSyncManager(
-            modelContainer: container,
-            configStore: configStore,
-            secretStore: secretStore,
-            repository: repository
-        )
+            backgroundManager.register()
 
-        backgroundManager.register()
-
-        _appModel = StateObject(
-            wrappedValue: AppModel(
+            self.appModel = AppModel(
                 modelContext: container.mainContext,
                 configStore: configStore,
                 secretStore: secretStore,
@@ -39,26 +34,59 @@ struct TwoFAuthApp: App {
                     backgroundManager.scheduleAppRefresh()
                 }
             )
-        )
-        self.backgroundSyncManager = backgroundManager
-        self.modelContainer = container
+            self.backgroundSyncManager = backgroundManager
+            self.modelContainer = container
+            self.startupErrorMessage = nil
+        } catch {
+#if DEBUG
+            fatalError("Failed to create ModelContainer: \(error)")
+#else
+            self.appModel = nil
+            self.backgroundSyncManager = nil
+            self.modelContainer = nil
+            self.startupErrorMessage = String(localized: "startup.error.model_container")
+#endif
+        }
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(appModel)
-                .modelContainer(modelContainer)
-                .task {
-                    await appModel.bootstrap()
-                    backgroundSyncManager.scheduleAppRefresh()
-                }
-                .onChange(of: scenePhase) { _, newPhase in
-                    appModel.handleScenePhaseChange(newPhase)
-                    if newPhase == .background {
+            if let appModel, let modelContainer, let backgroundSyncManager {
+                ContentView()
+                    .environmentObject(appModel)
+                    .modelContainer(modelContainer)
+                    .task {
+                        await appModel.bootstrap()
                         backgroundSyncManager.scheduleAppRefresh()
                     }
-                }
+                    .onChange(of: scenePhase) { _, newPhase in
+                        appModel.handleScenePhaseChange(newPhase)
+                        if newPhase == .background {
+                            backgroundSyncManager.scheduleAppRefresh()
+                        }
+                    }
+            } else {
+                StartupErrorView(message: startupErrorMessage ?? String(localized: "startup.error.generic"))
+            }
         }
+    }
+}
+
+private struct StartupErrorView: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.largeTitle)
+                .foregroundStyle(.orange)
+            Text(String(localized: "startup.error.title"))
+                .font(.headline)
+            Text(message)
+                .font(.body)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+        }
+        .padding(24)
     }
 }

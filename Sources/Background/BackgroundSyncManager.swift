@@ -42,6 +42,7 @@ final class BackgroundSyncManager {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
+            ErrorReporter.report("background.schedule_submit_failed")
             return
         }
     }
@@ -55,10 +56,20 @@ final class BackgroundSyncManager {
 
         task.expirationHandler = {
             worker.cancel()
+            ErrorReporter.report("background.task_expired")
         }
     }
 
     private func runBackgroundSync() async -> Bool {
+        await runBackgroundSync(isCancelled: { Task.isCancelled })
+    }
+
+    func runBackgroundSync(isCancelled: () -> Bool) async -> Bool {
+        if isCancelled() {
+            ErrorReporter.report("background.sync_cancelled_preflight")
+            return false
+        }
+
         guard let apiKey = secretStore.loadAPIKey(), let baseURLString = configStore.baseURLString, let baseURL = URL(string: baseURLString) else {
             return true
         }
@@ -71,18 +82,29 @@ final class BackgroundSyncManager {
             includeSecrets: true
         )
 
+        if isCancelled() {
+            ErrorReporter.report("background.sync_cancelled_after_network")
+            return false
+        }
+
         switch result {
         case .success:
             return true
         case .unauthorized:
+            if isCancelled() {
+                ErrorReporter.report("background.sync_cancelled_before_wipe")
+                return false
+            }
             do {
                 try repository.wipeCachedData(context: context)
             } catch {
+                ErrorReporter.report("background.wipe_failed")
                 return false
             }
             _ = secretStore.deleteAPIKey()
             _ = secretStore.deleteEncryptionKey()
             configStore.requiresRelogin = true
+            ErrorReporter.report("background.sync_unauthorized_relogin")
             return true
         case .transient:
             return true

@@ -1,9 +1,10 @@
 import Foundation
 import LocalAuthentication
+import OSLog
 import SwiftData
 import SwiftUI
 
-enum SessionState {
+enum SessionState: Equatable {
     case loggedOut
     case locked
     case unlocked
@@ -26,7 +27,7 @@ final class AppModel: ObservableObject {
     private let secretStore: SecretStore
     private let repository: AccountRepository
     private let scheduleBackgroundRefresh: () -> Void
-    private let biometricAuthenticator = BiometricAuthenticator()
+    private let biometricAuthenticator: any BiometricAuthenticating
 
     private var unlockedState: SessionState = .unlocked
     private var backgroundedAt: Date?
@@ -41,25 +42,28 @@ final class AppModel: ObservableObject {
         configStore: AppConfigStore,
         secretStore: SecretStore,
         repository: AccountRepository,
-        scheduleBackgroundRefresh: @escaping () -> Void
+        scheduleBackgroundRefresh: @escaping () -> Void,
+        biometricAuthenticator: any BiometricAuthenticating = BiometricAuthenticator()
     ) {
         self.modelContext = modelContext
         self.configStore = configStore
         self.secretStore = secretStore
         self.repository = repository
         self.scheduleBackgroundRefresh = scheduleBackgroundRefresh
+        self.biometricAuthenticator = biometricAuthenticator
         self.baseURLInput = configStore.baseURLString ?? ""
         self.autoLockTimeoutSeconds = configStore.autoLockTimeoutSeconds
         self.lastSuccessfulSyncAt = configStore.lastSuccessfulSyncAt
     }
 
     func bootstrap() async {
-        let environment = ProcessInfo.processInfo.environment
-        if environment["UI_TEST_START_UNLOCKED"] == "1" {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["UI_TEST_START_UNLOCKED"] == "1" {
             unlockedState = .unlocked
             sessionState = .unlocked
             return
         }
+#endif
 
         baseURLInput = configStore.baseURLString ?? ""
 
@@ -112,11 +116,13 @@ final class AppModel: ObservableObject {
                 sessionState = .unlocked
                 scheduleBackgroundRefresh()
             } catch {
+                ErrorReporter.report("login.secure_store_failed")
                 loginError = String(localized: "login.error.secure_store_failed")
             }
         case .unauthorized:
             loginError = String(localized: "login.error.invalid_credentials")
         case .transient(let reason):
+            ErrorReporter.report("login.sync_transient")
             loginError = String.localizedStringWithFormat(
                 String(localized: "login.error.server_unreachable"),
                 reason
@@ -151,6 +157,8 @@ final class AppModel: ObservableObject {
             {
                 return
             }
+            let code = (error as? LAError)?.code.rawValue ?? -1
+            ErrorReporter.report("unlock.biometric_failed", metadata: ["code": String(code)])
             syncMessage = String(localized: "sync.error.biometric_failed")
         }
     }
@@ -183,8 +191,10 @@ final class AppModel: ObservableObject {
             }
             syncMessage = nil
         case .unauthorized:
+            ErrorReporter.report("sync.unauthorized")
             await enforceReloginWipe()
         case .transient(let reason):
+            ErrorReporter.report("sync.transient")
             unlockedState = .degradedOffline
             if sessionState != .locked {
                 sessionState = .degradedOffline
@@ -316,14 +326,16 @@ final class AppModel: ObservableObject {
     }
 
     private func wipeAllData(requireRelogin: Bool) async {
-        let environment = ProcessInfo.processInfo.environment
-        if let delayMS = UInt64(environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
+#if DEBUG
+        if let delayMS = UInt64(ProcessInfo.processInfo.environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
             try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
         }
+#endif
 
         do {
             try repository.wipeCachedData(context: modelContext)
         } catch {
+            ErrorReporter.report("sync.cache_clear_failed")
             syncMessage = String(localized: "sync.error.cache_clear_failed")
         }
 
@@ -338,7 +350,13 @@ final class AppModel: ObservableObject {
     }
 }
 
-struct BiometricAuthenticator {
+protocol BiometricAuthenticating {
+    @MainActor
+    func authenticate(reason: String) async throws -> Bool
+}
+
+struct BiometricAuthenticator: BiometricAuthenticating {
+    @MainActor
     func authenticate(reason: String) async throws -> Bool {
         let context = LAContext()
         var error: NSError?
@@ -355,5 +373,26 @@ struct BiometricAuthenticator {
                 }
             }
         }
+    }
+}
+
+enum ErrorReporter {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.ryanep.2fauth",
+        category: "diagnostics"
+    )
+
+    static func report(_ event: String, metadata: [String: String] = [:]) {
+        guard !metadata.isEmpty else {
+            logger.error("event=\(event, privacy: .public)")
+            return
+        }
+
+        let details = metadata
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
+
+        logger.error("event=\(event, privacy: .public) \(details, privacy: .public)")
     }
 }
