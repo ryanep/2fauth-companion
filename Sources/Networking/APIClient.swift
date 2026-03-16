@@ -25,8 +25,10 @@ final class APIClient {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            throw APIError.transport("Network error (\(error.code.rawValue))")
         } catch {
-            throw APIError.transport(error.localizedDescription)
+            throw APIError.transport("Network error")
         }
 
         guard let httpResponse = response as? HTTPURLResponse else {
