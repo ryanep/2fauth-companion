@@ -54,12 +54,13 @@ final class AppModel: ObservableObject {
     }
 
     func bootstrap() async {
-        let environment = ProcessInfo.processInfo.environment
-        if environment["UI_TEST_START_UNLOCKED"] == "1" {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["UI_TEST_START_UNLOCKED"] == "1" {
             unlockedState = .unlocked
             sessionState = .unlocked
             return
         }
+#endif
 
         baseURLInput = configStore.baseURLString ?? ""
 
@@ -316,10 +317,11 @@ final class AppModel: ObservableObject {
     }
 
     private func wipeAllData(requireRelogin: Bool) async {
-        let environment = ProcessInfo.processInfo.environment
-        if let delayMS = UInt64(environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
+#if DEBUG
+        if let delayMS = UInt64(ProcessInfo.processInfo.environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
             try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
         }
+#endif
 
         do {
             try repository.wipeCachedData(context: modelContext)
