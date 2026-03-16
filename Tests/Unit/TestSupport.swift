@@ -1,10 +1,9 @@
 import Foundation
 import SwiftData
 import XCTest
-
 @testable import TwoFAuth
 
-class MockURLProtocol: URLProtocol {
+final class MockURLProtocol: URLProtocol {
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -45,12 +44,12 @@ func makeInMemoryModelContainer() throws -> ModelContainer {
     return try ModelContainer(for: AccountEntity.self, configurations: configuration)
 }
 
-func makeTestConfigStore(testName: String) -> UserDefaultsAppConfigStore {
+func makeTestConfigStore(testName: String) -> AppConfigStore {
     let suiteName = "TwoFAuthTests.\(testName).\(UUID().uuidString)"
     guard let defaults = UserDefaults(suiteName: suiteName) else {
         XCTFail("Could not create UserDefaults suite")
-        return UserDefaultsAppConfigStore()
+        return AppConfigStore()
     }
     defaults.removePersistentDomain(forName: suiteName)
-    return UserDefaultsAppConfigStore(defaults: defaults)
+    return AppConfigStore(defaults: defaults)
 }

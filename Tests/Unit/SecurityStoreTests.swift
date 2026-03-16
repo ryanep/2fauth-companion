@@ -1,12 +1,11 @@
 import Foundation
 import Security
 import XCTest
-
 @testable import TwoFAuth
 
 @MainActor
 final class SecurityStoreTests: XCTestCase {
-    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
+    nonisolated(unsafe) private let secretStore = SecretStore()
 
     override func setUp() {
         super.setUp()
@@ -22,7 +21,7 @@ final class SecurityStoreTests: XCTestCase {
 
     func testKeychainAccessibilityPolicyIsAfterFirstUnlockDeviceOnly() {
         XCTAssertEqual(
-            KeychainSecretStore.keychainAccessibilityValue,
+            SecretStore.keychainAccessibilityValue,
             kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
         )
     }
@@ -32,10 +31,10 @@ final class SecurityStoreTests: XCTestCase {
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: KeychainSecretStore.serviceIdentifier,
-            kSecAttrAccount as String: KeychainSecretStore.apiKeyAccountIdentifier,
+            kSecAttrService as String: SecretStore.serviceIdentifier,
+            kSecAttrAccount as String: SecretStore.apiKeyAccountIdentifier,
             kSecReturnAttributes as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecMatchLimit as String: kSecMatchLimitOne
         ]
 
         var item: AnyObject?
@@ -44,11 +43,11 @@ final class SecurityStoreTests: XCTestCase {
 
         let attributes = item as? [String: Any]
         let accessible = attributes?[kSecAttrAccessible as String] as? String
-        XCTAssertEqual(accessible, KeychainSecretStore.keychainAccessibilityValue)
+        XCTAssertEqual(accessible, SecretStore.keychainAccessibilityValue)
     }
 
     func testDecryptFailsForTamperedPayload() throws {
-        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
+        let cryptoStore = CryptoStore(secretStore: secretStore)
         let encrypted = try cryptoStore.encrypt("ABCDEF")
         var tampered = encrypted
         tampered[tampered.startIndex] ^= 0xFF
@@ -57,7 +56,7 @@ final class SecurityStoreTests: XCTestCase {
     }
 
     func testResetEncryptionKeyBreaksOldCiphertextAndAllowsFreshRoundTrip() throws {
-        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
+        let cryptoStore = CryptoStore(secretStore: secretStore)
         let encryptedBeforeReset = try cryptoStore.encrypt("FIRST")
 
         XCTAssertTrue(cryptoStore.resetEncryptionKey())

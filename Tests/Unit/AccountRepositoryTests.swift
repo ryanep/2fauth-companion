@@ -1,12 +1,11 @@
 import Foundation
 import SwiftData
 import XCTest
-
 @testable import TwoFAuth
 
 @MainActor
 final class AccountRepositoryTests: XCTestCase {
-    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
+    nonisolated(unsafe) private let secretStore = SecretStore()
 
     override func setUp() {
         super.setUp()
@@ -25,8 +24,8 @@ final class AccountRepositoryTests: XCTestCase {
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             let json = """
-                [{"id":101,"service":"GitHub","account":"ryan","otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30,"counter":null}]
-                """
+            [{"id":101,"group_id":1,"service":"GitHub","account":"ryan","icon":null,"otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30,"counter":null}]
+            """
             return (response, Data(json.utf8))
         }
 
@@ -155,10 +154,10 @@ final class AccountRepositoryTests: XCTestCase {
         XCTAssertEqual(message, String(localized: "sync.error.generic_failed"))
     }
 
-    private func makeRepository() -> DefaultAccountRepository {
-        let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
-        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
-        return DefaultAccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
+    private func makeRepository() -> AccountRepository {
+        let apiClient = APIClient(session: makeMockedURLSession())
+        let cryptoStore = CryptoStore(secretStore: secretStore)
+        return AccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
     }
 
     private func matches(_ actual: SyncResult, expected: SyncResult) -> Bool {

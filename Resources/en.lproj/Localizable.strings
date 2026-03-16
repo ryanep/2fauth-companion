@@ -48,3 +48,7 @@
 "sync.error.cache_clear_failed" = "Could not clear local cache.";
 "sync.error.server_error" = "Server error (%d)";
 "sync.error.generic_failed" = "Sync failed";
+
+"startup.error.title" = "Unable to Start App";
+"startup.error.model_container" = "The local data store could not be initialized. Please restart the app.";
+"startup.error.generic" = "The app could not finish startup. Please restart and try again.";

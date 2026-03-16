@@ -39,6 +39,7 @@ final class AccountRepository {
         } catch APIError.forbidden {
             return .unauthorized
         } catch APIError.server(let code) {
+            ErrorReporter.report("repository.sync_server_error", metadata: ["status": String(code)])
             return .transient(
                 String.localizedStringWithFormat(
                     String(localized: "sync.error.server_error"),
@@ -46,8 +47,10 @@ final class AccountRepository {
                 )
             )
         } catch APIError.transport(let message) {
+            ErrorReporter.report("repository.sync_transport_error")
             return .transient(message)
         } catch {
+            ErrorReporter.report("repository.sync_generic_error")
             return .transient(String(localized: "sync.error.generic_failed"))
         }
     }

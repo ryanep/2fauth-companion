@@ -38,4 +38,9 @@ final class CryptoStore {
         }
         return value
     }
+
+    @discardableResult
+    func resetEncryptionKey() -> Bool {
+        secretStore.deleteEncryptionKey()
+    }
 }

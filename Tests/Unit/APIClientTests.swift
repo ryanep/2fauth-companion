@@ -1,6 +1,5 @@
 import Foundation
 import XCTest
-
 @testable import TwoFAuth
 
 @MainActor
@@ -18,13 +17,13 @@ final class APIClientTests: XCTestCase {
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
 
             let json = """
-                [{"id":1,"service":"GitHub","account":"ryan","otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30,"counter":null}]
-                """
+            [{"id":1,"group_id":2,"service":"GitHub","account":"ryan","icon":null,"otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30,"counter":null}]
+            """
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (response, Data(json.utf8))
         }
 
-        let sut = URLSessionAPIClient(session: makeMockedURLSession())
+        let sut = APIClient(session: makeMockedURLSession())
         let accounts = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: true)
 
         XCTAssertEqual(accounts.count, 1)
@@ -38,7 +37,7 @@ final class APIClientTests: XCTestCase {
             return (response, Data())
         }
 
-        let sut = URLSessionAPIClient(session: makeMockedURLSession())
+        let sut = APIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)
@@ -55,7 +54,7 @@ final class APIClientTests: XCTestCase {
             return (response, Data())
         }
 
-        let sut = URLSessionAPIClient(session: makeMockedURLSession())
+        let sut = APIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)
@@ -72,7 +71,7 @@ final class APIClientTests: XCTestCase {
             return (response, Data())
         }
 
-        let sut = URLSessionAPIClient(session: makeMockedURLSession())
+        let sut = APIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)
@@ -89,7 +88,7 @@ final class APIClientTests: XCTestCase {
             throw URLError(.timedOut)
         }
 
-        let sut = URLSessionAPIClient(session: makeMockedURLSession())
+        let sut = APIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)
@@ -107,7 +106,7 @@ final class APIClientTests: XCTestCase {
             return (response, Data("{\"not\":\"an array\"}".utf8))
         }
 
-        let sut = URLSessionAPIClient(session: makeMockedURLSession())
+        let sut = APIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)

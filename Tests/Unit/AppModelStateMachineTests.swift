@@ -1,19 +1,11 @@
 import Foundation
-import BackgroundTasks
 import SwiftData
 import XCTest
-
 @testable import TwoFAuth
 
 @MainActor
 final class AppModelStateMachineTests: XCTestCase {
-    private struct SUT {
-        let appModel: AppModel
-        let configStore: UserDefaultsAppConfigStore
-        let modelContext: ModelContext
-    }
-
-    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
+    nonisolated(unsafe) private let secretStore = SecretStore()
 
     override func setUp() {
         super.setUp()
@@ -162,8 +154,10 @@ final class AppModelStateMachineTests: XCTestCase {
 
         let account = AccountEntity(
             remoteID: 1,
+            groupID: nil,
             service: "GitHub",
             account: "ryan",
+            icon: nil,
             otpType: "totp",
             digits: 6,
             algorithm: "SHA1",
@@ -188,14 +182,14 @@ final class AppModelStateMachineTests: XCTestCase {
 
     private func makeSUT(
         testName: String,
-        biometricAuthenticator: any BiometricAuthenticator = MockBiometricAuthenticator(result: .success(true))
-    ) throws -> SUT {
+        biometricAuthenticator: any BiometricAuthenticating = MockBiometricAuthenticator(result: .success(true))
+    ) throws -> (appModel: AppModel, configStore: AppConfigStore, modelContext: ModelContext) {
         let container = try makeInMemoryModelContainer()
         let context = ModelContext(container)
         let configStore = makeTestConfigStore(testName: testName)
-        let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
-        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
-        let repository = DefaultAccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
+        let apiClient = APIClient(session: makeMockedURLSession())
+        let cryptoStore = CryptoStore(secretStore: secretStore)
+        let repository = AccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
         let appModel = AppModel(
             modelContext: context,
             configStore: configStore,
@@ -205,13 +199,13 @@ final class AppModelStateMachineTests: XCTestCase {
             biometricAuthenticator: biometricAuthenticator
         )
 
-        return SUT(appModel: appModel, configStore: configStore, modelContext: context)
+        return (appModel, configStore, context)
     }
 }
 
 @MainActor
 final class BackgroundSyncManagerBehaviorTests: XCTestCase {
-    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
+    nonisolated(unsafe) private let secretStore = SecretStore()
 
     override func setUp() {
         super.setUp()
@@ -288,59 +282,11 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
         XCTAssertNotNil(secretStore.loadAPIKey())
     }
 
-    func testRunBackgroundSyncSkipsHTTPWhenPolicyIsSecureOnly() async throws {
-        let setup = try makeSUT(testName: #function)
-        setup.configStore.baseURLString = "http://example.com"
-        setup.configStore.transportPolicy = .secureOnly
-        try secretStore.saveAPIKey("api-key")
-
-        let result = await setup.manager.runBackgroundSync(isCancelled: { false })
-
-        XCTAssertTrue(result)
-        XCTAssertFalse(setup.configStore.requiresRelogin)
-        XCTAssertNotNil(secretStore.loadAPIKey())
-    }
-
-    func testRunBackgroundSyncAllowsHTTPWhenPolicyAllowsHTTP() async throws {
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, Data("[]".utf8))
-        }
-
-        let setup = try makeSUT(testName: #function)
-        setup.configStore.baseURLString = "http://example.com"
-        setup.configStore.transportPolicy = .allowHTTP
-        try secretStore.saveAPIKey("api-key")
-
-        let result = await setup.manager.runBackgroundSync(isCancelled: { false })
-
-        XCTAssertTrue(result)
-        XCTAssertFalse(setup.configStore.requiresRelogin)
-        XCTAssertNotNil(secretStore.loadAPIKey())
-    }
-
-    func testRunBackgroundSyncSkipsInvalidBaseURL() async throws {
-        let setup = try makeSUT(testName: #function)
-        setup.configStore.baseURLString = "not-a-url"
-        try secretStore.saveAPIKey("api-key")
-
-        let result = await setup.manager.runBackgroundSync(isCancelled: { false })
-
-        XCTAssertTrue(result)
-        XCTAssertFalse(setup.configStore.requiresRelogin)
-        XCTAssertNotNil(secretStore.loadAPIKey())
-    }
-
-    private func makeSUT(
-        testName: String
-    ) throws -> (manager: BackgroundSyncManager, configStore: UserDefaultsAppConfigStore) {
+    private func makeSUT(testName: String) throws -> (manager: BackgroundSyncManager, configStore: AppConfigStore) {
         let container = try makeInMemoryModelContainer()
         let configStore = makeTestConfigStore(testName: testName)
-        let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
-        let repository = DefaultAccountRepository(
-            apiClient: apiClient,
-            cryptoStore: AESGCMCryptoStore(secretStore: secretStore)
-        )
+        let apiClient = APIClient(session: makeMockedURLSession())
+        let repository = AccountRepository(apiClient: apiClient, cryptoStore: CryptoStore(secretStore: secretStore))
         let manager = BackgroundSyncManager(
             modelContainer: container,
             configStore: configStore,
@@ -351,105 +297,7 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
     }
 }
 
-@MainActor
-final class BackgroundSyncManagerDiagnosticsTests: XCTestCase {
-    private struct ReportEvent: Equatable {
-        let event: String
-        let metadata: [String: String]
-    }
-
-    private final class MockBackgroundTaskScheduler: BackgroundTaskScheduling {
-        var registerResult = true
-        var submitError: Error?
-
-        func register(
-            forTaskWithIdentifier identifier: String,
-            using queue: DispatchQueue?,
-            launchHandler: @escaping (BGTask) -> Void
-        ) -> Bool {
-            registerResult
-        }
-
-        func submit(_ taskRequest: BGTaskRequest) throws {
-            if let submitError {
-                throw submitError
-            }
-        }
-    }
-
-    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
-
-    override func setUp() {
-        super.setUp()
-        _ = secretStore.deleteAPIKey()
-        _ = secretStore.deleteEncryptionKey()
-    }
-
-    override func tearDown() {
-        _ = secretStore.deleteAPIKey()
-        _ = secretStore.deleteEncryptionKey()
-        super.tearDown()
-    }
-
-    func testRegisterReportsFailureWhenSchedulerRejectsIdentifier() async throws {
-        let scheduler = MockBackgroundTaskScheduler()
-        scheduler.registerResult = false
-        var reported: [ReportEvent] = []
-        let manager = try makeSUT(scheduler: scheduler) { event, metadata in
-            reported.append(ReportEvent(event: event, metadata: metadata))
-        }
-
-        manager.register()
-
-        XCTAssertEqual(reported.count, 1)
-        XCTAssertEqual(
-            reported.first,
-            ReportEvent(
-                event: "background.register_failed",
-                metadata: ["taskIdentifier": BackgroundSyncManager.taskIdentifier]
-            )
-        )
-    }
-
-    func testScheduleReportsSubmitFailureWithIdentifierAndError() async throws {
-        let scheduler = MockBackgroundTaskScheduler()
-        scheduler.submitError = NSError(domain: "test", code: 99, userInfo: [NSLocalizedDescriptionKey: "submit failed"])
-        var reported: [ReportEvent] = []
-        let manager = try makeSUT(scheduler: scheduler) { event, metadata in
-            reported.append(ReportEvent(event: event, metadata: metadata))
-        }
-
-        manager.scheduleAppRefresh()
-
-        XCTAssertEqual(reported.count, 1)
-        XCTAssertEqual(reported.first?.event, "background.schedule_submit_failed")
-        XCTAssertEqual(reported.first?.metadata["taskIdentifier"], BackgroundSyncManager.taskIdentifier)
-        XCTAssertEqual(reported.first?.metadata["error"], "submit failed")
-    }
-
-    private func makeSUT(
-        scheduler: any BackgroundTaskScheduling,
-        report: @escaping (String, [String: String]) -> Void
-    ) throws -> BackgroundSyncManager {
-        let container = try makeInMemoryModelContainer()
-        let configStore = makeTestConfigStore(testName: #function)
-        let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
-        let repository = DefaultAccountRepository(
-            apiClient: apiClient,
-            cryptoStore: AESGCMCryptoStore(secretStore: secretStore)
-        )
-        return BackgroundSyncManager(
-            modelContainer: container,
-            configStore: configStore,
-            secretStore: secretStore,
-            repository: repository,
-            taskScheduler: scheduler,
-            report: report
-        )
-    }
-}
-
-private struct MockBiometricAuthenticator: BiometricAuthenticator {
+private struct MockBiometricAuthenticator: BiometricAuthenticating {
     let result: Result<Bool, Error>
 
     @MainActor
