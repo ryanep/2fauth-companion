@@ -24,7 +24,7 @@ final class APIClientTests: XCTestCase {
             return (response, Data(json.utf8))
         }
 
-        let sut = APIClient(session: makeMockedURLSession())
+        let sut = URLSessionAPIClient(session: makeMockedURLSession())
         let accounts = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: true)
 
         XCTAssertEqual(accounts.count, 1)
@@ -38,7 +38,7 @@ final class APIClientTests: XCTestCase {
             return (response, Data())
         }
 
-        let sut = APIClient(session: makeMockedURLSession())
+        let sut = URLSessionAPIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)
@@ -55,7 +55,7 @@ final class APIClientTests: XCTestCase {
             return (response, Data())
         }
 
-        let sut = APIClient(session: makeMockedURLSession())
+        let sut = URLSessionAPIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)
@@ -72,7 +72,7 @@ final class APIClientTests: XCTestCase {
             return (response, Data())
         }
 
-        let sut = APIClient(session: makeMockedURLSession())
+        let sut = URLSessionAPIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)
@@ -89,7 +89,7 @@ final class APIClientTests: XCTestCase {
             throw URLError(.timedOut)
         }
 
-        let sut = APIClient(session: makeMockedURLSession())
+        let sut = URLSessionAPIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)
@@ -107,7 +107,7 @@ final class APIClientTests: XCTestCase {
             return (response, Data("{\"not\":\"an array\"}".utf8))
         }
 
-        let sut = APIClient(session: makeMockedURLSession())
+        let sut = URLSessionAPIClient(session: makeMockedURLSession())
 
         do {
             _ = try await sut.fetchAccounts(baseURL: baseURL, apiKey: "test-key", includeSecrets: false)

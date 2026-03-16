@@ -45,12 +45,12 @@ func makeInMemoryModelContainer() throws -> ModelContainer {
     return try ModelContainer(for: AccountEntity.self, configurations: configuration)
 }
 
-func makeTestConfigStore(testName: String) -> AppConfigStore {
+func makeTestConfigStore(testName: String) -> UserDefaultsAppConfigStore {
     let suiteName = "TwoFAuthTests.\(testName).\(UUID().uuidString)"
     guard let defaults = UserDefaults(suiteName: suiteName) else {
         XCTFail("Could not create UserDefaults suite")
-        return AppConfigStore()
+        return UserDefaultsAppConfigStore()
     }
     defaults.removePersistentDomain(forName: suiteName)
-    return AppConfigStore(defaults: defaults)
+    return UserDefaultsAppConfigStore(defaults: defaults)
 }

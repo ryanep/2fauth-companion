@@ -73,17 +73,9 @@ This roadmap translates the architecture review into an execution plan with prac
 - **Success criteria:** Smaller types with clear ownership; easier targeted tests; behavior unchanged.
 
 ### 7) Introduce protocol-first dependency boundaries
-- [ ] In progress
+- [x] Done
 - **Goal:** Decouple composition root from concrete implementations.
 - **Scope:** Add protocols for API client, secret storage, crypto, repository/sync service; wire dependencies in `TwoFAuthApp`.
-- **Implementation checklist:**
-  - [x] Define and adopt a `SecretStore` protocol with a concrete `KeychainSecretStore` implementation.
-  - [x] Switch `AppModel`, `BackgroundSyncManager`, and `CryptoStore` to depend on protocol `SecretStore` instead of concrete keychain storage.
-  - [ ] Define protocol boundary for `APIClient`.
-  - [ ] Define protocol boundary for `CryptoStore`.
-  - [ ] Define protocol boundary for `AccountRepository` sync/wipe/decrypt surface.
-  - [ ] Update tests to prefer protocol-driven test doubles where appropriate.
-  - [ ] Confirm unit/UI/archive checks pass after full dependency-boundary migration.
 - **Files:** `Sources/App/TwoFAuthApp.swift`, `Sources/Networking/APIClient.swift`, `Sources/Security/*.swift`, `Sources/Repository/AccountRepository.swift`
 - **Effort:** M-L
 - **Risk:** Medium

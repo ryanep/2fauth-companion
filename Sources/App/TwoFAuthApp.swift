@@ -12,10 +12,11 @@ struct TwoFAuthApp: App {
     init() {
         do {
             let container = try Self.makeModelContainer()
-            let configStore = AppConfigStore()
-            let secretStore = KeychainSecretStore()
-            let cryptoStore = CryptoStore(secretStore: secretStore)
-            let repository = AccountRepository(apiClient: APIClient(), cryptoStore: cryptoStore)
+            let configStore: any AppConfigStore = UserDefaultsAppConfigStore()
+            let secretStore: any SecretStore = KeychainSecretStore()
+            let cryptoStore: any CryptoStore = AESGCMCryptoStore(secretStore: secretStore)
+            let apiClient: any APIClient = URLSessionAPIClient()
+            let repository: any AccountRepository = DefaultAccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
             let backgroundManager = BackgroundSyncManager(
                 modelContainer: container,
                 configStore: configStore,

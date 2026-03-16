@@ -35,13 +35,13 @@ final class TwoFAuthTests: XCTestCase {
     func testAutoLockTimeoutDefaultsToImmediate() {
         let store = makeConfigStore(testName: #function)
 
-        XCTAssertEqual(store.autoLockTimeoutSeconds, AppConfigStore.defaultAutoLockTimeoutSeconds)
+        XCTAssertEqual(store.autoLockTimeoutSeconds, UserDefaultsAppConfigStore.defaultAutoLockTimeoutSeconds)
     }
 
     func testAutoLockTimeoutAcceptsPresetValues() {
         let store = makeConfigStore(testName: #function)
 
-        for value in AppConfigStore.autoLockTimeoutOptionsSeconds {
+        for value in UserDefaultsAppConfigStore.autoLockTimeoutOptionsSeconds {
             store.autoLockTimeoutSeconds = value
             XCTAssertEqual(store.autoLockTimeoutSeconds, value)
         }
@@ -51,18 +51,18 @@ final class TwoFAuthTests: XCTestCase {
         let store = makeConfigStore(testName: #function)
 
         store.autoLockTimeoutSeconds = 45
-        XCTAssertEqual(store.autoLockTimeoutSeconds, AppConfigStore.defaultAutoLockTimeoutSeconds)
+        XCTAssertEqual(store.autoLockTimeoutSeconds, UserDefaultsAppConfigStore.defaultAutoLockTimeoutSeconds)
 
         store.autoLockTimeoutSeconds = -10
-        XCTAssertEqual(store.autoLockTimeoutSeconds, AppConfigStore.defaultAutoLockTimeoutSeconds)
+        XCTAssertEqual(store.autoLockTimeoutSeconds, UserDefaultsAppConfigStore.defaultAutoLockTimeoutSeconds)
     }
 
-    private func makeConfigStore(testName: String) -> AppConfigStore {
+    private func makeConfigStore(testName: String) -> UserDefaultsAppConfigStore {
         let suiteName = "TwoFAuthTests.\(testName)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             fatalError("Could not create UserDefaults test suite")
         }
         defaults.removePersistentDomain(forName: suiteName)
-        return AppConfigStore(defaults: defaults)
+        return UserDefaultsAppConfigStore(defaults: defaults)
     }
 }

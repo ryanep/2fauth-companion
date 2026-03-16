@@ -1,11 +1,12 @@
 import Foundation
 
-final class AppConfigStore {
+final class UserDefaultsAppConfigStore: AppConfigStore {
     private enum Keys {
         static let baseURL = "config.baseURL"
         static let requiresRelogin = "config.requiresRelogin"
         static let autoLockTimeoutSeconds = "config.autoLockTimeoutSeconds"
         static let lastSuccessfulSyncAt = "config.lastSuccessfulSyncAt"
+        static let transportPolicy = "config.transportPolicy"
     }
 
     static let backgroundSyncIntervalMinutes = 15
@@ -41,6 +42,21 @@ final class AppConfigStore {
     var lastSuccessfulSyncAt: Date? {
         get { defaults.object(forKey: Keys.lastSuccessfulSyncAt) as? Date }
         set { defaults.set(newValue, forKey: Keys.lastSuccessfulSyncAt) }
+    }
+
+    var transportPolicy: TransportPolicy {
+        get {
+            guard
+                let rawValue = defaults.string(forKey: Keys.transportPolicy),
+                let policy = TransportPolicy(rawValue: rawValue)
+            else {
+                return .secureOnly
+            }
+            return policy
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Keys.transportPolicy)
+        }
     }
 
     static func normalizeAutoLockTimeout(_ value: Int) -> Int {

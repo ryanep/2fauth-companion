@@ -48,7 +48,7 @@ final class SecurityStoreTests: XCTestCase {
     }
 
     func testDecryptFailsForTamperedPayload() throws {
-        let cryptoStore = CryptoStore(secretStore: secretStore)
+        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
         let encrypted = try cryptoStore.encrypt("ABCDEF")
         var tampered = encrypted
         tampered[tampered.startIndex] ^= 0xFF
@@ -57,7 +57,7 @@ final class SecurityStoreTests: XCTestCase {
     }
 
     func testResetEncryptionKeyBreaksOldCiphertextAndAllowsFreshRoundTrip() throws {
-        let cryptoStore = CryptoStore(secretStore: secretStore)
+        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
         let encryptedBeforeReset = try cryptoStore.encrypt("FIRST")
 
         XCTAssertTrue(cryptoStore.resetEncryptionKey())

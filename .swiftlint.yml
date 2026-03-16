@@ -1,0 +1,26 @@
+included:
+  - Sources
+  - Tests
+
+excluded:
+  - .build
+  - DerivedData
+  - 2FAuth.xcodeproj
+  - 2FAuth.xcworkspace
+
+reporter: xcode
+
+disabled_rules:
+  - line_length
+  - trailing_whitespace
+  - vertical_whitespace
+  - opening_brace
+  - closing_brace
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - joined_default_parameter
+  - redundant_nil_coalescing
+  - sorted_first_last

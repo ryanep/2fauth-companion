@@ -54,7 +54,7 @@ struct SettingsView: View {
 
             Section("settings.section.session") {
                 Picker("settings.auto_lock.label", selection: autoLockTimeoutBinding) {
-                    ForEach(AppConfigStore.autoLockTimeoutOptionsSeconds, id: \.self) { seconds in
+                    ForEach(UserDefaultsAppConfigStore.autoLockTimeoutOptionsSeconds, id: \.self) { seconds in
                         Text(autoLockLabel(for: seconds)).tag(seconds)
                     }
                 }

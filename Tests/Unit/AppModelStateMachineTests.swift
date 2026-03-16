@@ -184,13 +184,13 @@ final class AppModelStateMachineTests: XCTestCase {
     private func makeSUT(
         testName: String,
         biometricAuthenticator: any BiometricAuthenticating = MockBiometricAuthenticator(result: .success(true))
-    ) throws -> (appModel: AppModel, configStore: AppConfigStore, modelContext: ModelContext) {
+    ) throws -> (appModel: AppModel, configStore: UserDefaultsAppConfigStore, modelContext: ModelContext) {
         let container = try makeInMemoryModelContainer()
         let context = ModelContext(container)
         let configStore = makeTestConfigStore(testName: testName)
-        let apiClient = APIClient(session: makeMockedURLSession())
-        let cryptoStore = CryptoStore(secretStore: secretStore)
-        let repository = AccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
+        let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
+        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
+        let repository = DefaultAccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
         let appModel = AppModel(
             modelContext: context,
             configStore: configStore,
@@ -283,11 +283,11 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
         XCTAssertNotNil(secretStore.loadAPIKey())
     }
 
-    private func makeSUT(testName: String) throws -> (manager: BackgroundSyncManager, configStore: AppConfigStore) {
+    private func makeSUT(testName: String) throws -> (manager: BackgroundSyncManager, configStore: UserDefaultsAppConfigStore) {
         let container = try makeInMemoryModelContainer()
         let configStore = makeTestConfigStore(testName: testName)
-        let apiClient = APIClient(session: makeMockedURLSession())
-        let repository = AccountRepository(apiClient: apiClient, cryptoStore: CryptoStore(secretStore: secretStore))
+        let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
+        let repository = DefaultAccountRepository(apiClient: apiClient, cryptoStore: AESGCMCryptoStore(secretStore: secretStore))
         let manager = BackgroundSyncManager(
             modelContainer: container,
             configStore: configStore,

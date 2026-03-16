@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-final class CryptoStore {
+final class AESGCMCryptoStore: CryptoStore {
     private let secretStore: any SecretStore
 
     init(secretStore: any SecretStore) {
