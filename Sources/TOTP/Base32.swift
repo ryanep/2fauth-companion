@@ -4,7 +4,8 @@ enum Base32 {
     private static let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
 
     static func decode(_ input: String) -> Data? {
-        let cleaned = input
+        let cleaned =
+            input
             .replacingOccurrences(of: "=", with: "")
             .replacingOccurrences(of: " ", with: "")
             .uppercased()

@@ -57,13 +57,13 @@ final class AppModel: ObservableObject {
     }
 
     func bootstrap() async {
-#if DEBUG
-        if ProcessInfo.processInfo.environment["UI_TEST_START_UNLOCKED"] == "1" {
-            unlockedState = .unlocked
-            sessionState = .unlocked
-            return
-        }
-#endif
+        #if DEBUG
+            if ProcessInfo.processInfo.environment["UI_TEST_START_UNLOCKED"] == "1" {
+                unlockedState = .unlocked
+                sessionState = .unlocked
+                return
+            }
+        #endif
 
         baseURLInput = configStore.baseURLString ?? ""
 
@@ -313,7 +313,8 @@ final class AppModel: ObservableObject {
 
     private func validatedBaseURL(from input: String) -> URL? {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: value), let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme) else {
+        guard let url = URL(string: value), let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme)
+        else {
             return nil
         }
         return url
@@ -326,11 +327,11 @@ final class AppModel: ObservableObject {
     }
 
     private func wipeAllData(requireRelogin: Bool) async {
-#if DEBUG
-        if let delayMS = UInt64(ProcessInfo.processInfo.environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
-            try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
-        }
-#endif
+        #if DEBUG
+            if let delayMS = UInt64(ProcessInfo.processInfo.environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
+                try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
+            }
+        #endif
 
         do {
             try repository.wipeCachedData(context: modelContext)
@@ -365,7 +366,8 @@ struct BiometricAuthenticator: BiometricAuthenticating {
         }
 
         return try await withCheckedThrowingContinuation { continuation in
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, evalError in
+            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) {
+                success, evalError in
                 if let evalError {
                     continuation.resume(throwing: evalError)
                 } else {
@@ -388,7 +390,8 @@ enum ErrorReporter {
             return
         }
 
-        let details = metadata
+        let details =
+            metadata
             .sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: " ")

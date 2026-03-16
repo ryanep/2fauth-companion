@@ -52,3 +52,6 @@
 "startup.error.title" = "Unable to Start App";
 "startup.error.model_container" = "The local data store could not be initialized. Please restart the app.";
 "startup.error.generic" = "The app could not finish startup. Please restart and try again.";
+"startup.error.reset_data" = "Reset Local Data";
+"startup.error.reset_success" = "Local data reset complete. Relaunch the app to continue.";
+"startup.error.reset_failed" = "Could not reset local data. Please restart the app and try again.";

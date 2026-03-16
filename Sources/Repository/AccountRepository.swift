@@ -106,15 +106,10 @@ final class AccountRepository {
             }
 
             let metadataChanged =
-                entity.groupID != remote.groupID ||
-                entity.service != remote.service ||
-                entity.account != remote.account ||
-                entity.icon != remote.icon ||
-                entity.otpType != remote.otpType ||
-                entity.digits != remote.digits ||
-                entity.algorithm != remote.algorithm ||
-                entity.period != remote.period ||
-                entity.counter != remote.counter
+                entity.groupID != remote.groupID || entity.service != remote.service || entity.account != remote.account
+                || entity.icon != remote.icon || entity.otpType != remote.otpType || entity.digits != remote.digits
+                || entity.algorithm != remote.algorithm || entity.period != remote.period
+                || entity.counter != remote.counter
 
             var secretChanged = false
             if let remoteSecret = remote.secret {

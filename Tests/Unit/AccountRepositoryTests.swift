@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import XCTest
+
 @testable import TwoFAuth
 
 @MainActor
@@ -24,8 +25,8 @@ final class AccountRepositoryTests: XCTestCase {
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             let json = """
-            [{"id":101,"group_id":1,"service":"GitHub","account":"ryan","icon":null,"otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30,"counter":null}]
-            """
+                [{"id":101,"group_id":1,"service":"GitHub","account":"ryan","icon":null,"otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30,"counter":null}]
+                """
             return (response, Data(json.utf8))
         }
 

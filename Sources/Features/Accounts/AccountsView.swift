@@ -1,8 +1,9 @@
 import Combine
 import SwiftData
 import SwiftUI
+
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 struct AccountsView: View {
@@ -142,8 +143,8 @@ private struct AccountRowView: View {
                             secondsRemaining
                         )
                     )
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
                 }
                 .frame(width: 34, height: 34)
             }
@@ -216,10 +217,10 @@ private struct AccountRowView: View {
         guard !otpCode.contains("-") else {
             return
         }
-#if canImport(UIKit)
-        UIPasteboard.general.string = otpCode
-        triggerCopyHaptic()
-#endif
+        #if canImport(UIKit)
+            UIPasteboard.general.string = otpCode
+            triggerCopyHaptic()
+        #endif
     }
 
     private func handleCopyCodeTap() {
@@ -242,20 +243,20 @@ private struct AccountRowView: View {
         }
     }
 
-#if canImport(UIKit)
-    private func triggerLightHaptic() {
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.prepare()
-        generator.impactOccurred()
-    }
+    #if canImport(UIKit)
+        private func triggerLightHaptic() {
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.prepare()
+            generator.impactOccurred()
+        }
 
-    private func triggerCopyHaptic() {
-        let generator = UINotificationFeedbackGenerator()
-        generator.prepare()
-        generator.notificationOccurred(.success)
-    }
-#else
-    private func triggerLightHaptic() {}
-    private func triggerCopyHaptic() {}
-#endif
+        private func triggerCopyHaptic() {
+            let generator = UINotificationFeedbackGenerator()
+            generator.prepare()
+            generator.notificationOccurred(.success)
+        }
+    #else
+        private func triggerLightHaptic() {}
+        private func triggerCopyHaptic() {}
+    #endif
 }

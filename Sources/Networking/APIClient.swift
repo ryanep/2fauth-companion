@@ -9,9 +9,13 @@ final class APIClient {
     }
 
     func fetchAccounts(baseURL: URL, apiKey: String, includeSecrets: Bool) async throws -> [APIAccount] {
-        guard let url = endpointURL(baseURL: baseURL, path: "/api/v1/twofaccounts", query: [
-            URLQueryItem(name: "withSecret", value: includeSecrets ? "1" : "0")
-        ]) else {
+        guard
+            let url = endpointURL(
+                baseURL: baseURL, path: "/api/v1/twofaccounts",
+                query: [
+                    URLQueryItem(name: "withSecret", value: includeSecrets ? "1" : "0")
+                ])
+        else {
             throw APIError.invalidURL
         }
 
@@ -25,8 +29,10 @@ final class APIClient {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            throw APIError.transport("Network error (\(error.code.rawValue))")
         } catch {
-            throw APIError.transport(error.localizedDescription)
+            throw APIError.transport("Network error")
         }
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -40,7 +46,7 @@ final class APIClient {
             throw APIError.unauthorized
         case 403:
             throw APIError.forbidden
-        case 500 ... 599:
+        case 500...599:
             throw APIError.server(statusCode: httpResponse.statusCode)
         default:
             throw APIError.transport("HTTP \(httpResponse.statusCode)")

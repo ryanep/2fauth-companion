@@ -1,6 +1,7 @@
 import Foundation
 import Security
 import XCTest
+
 @testable import TwoFAuth
 
 @MainActor
@@ -34,7 +35,7 @@ final class SecurityStoreTests: XCTestCase {
             kSecAttrService as String: SecretStore.serviceIdentifier,
             kSecAttrAccount as String: SecretStore.apiKeyAccountIdentifier,
             kSecReturnAttributes as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
 
         var item: AnyObject?

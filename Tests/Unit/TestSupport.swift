@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import XCTest
+
 @testable import TwoFAuth
 
 final class MockURLProtocol: URLProtocol {

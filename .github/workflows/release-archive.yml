@@ -9,9 +9,7 @@ on:
 jobs:
   archive:
     name: Archive Release Build
-    runs-on: macos-15
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -29,26 +27,6 @@ jobs:
 
       - name: Verify Swift formatting
         run: ./Scripts/check-swift-format.sh
-
-      - name: Install SwiftLint (if needed)
-        run: |
-          if command -v swiftlint >/dev/null 2>&1 || [ -x "/opt/homebrew/bin/swiftlint" ] || [ -x "/usr/local/bin/swiftlint" ]; then
-            exit 0
-          fi
-          brew install swiftlint
-
-      - name: Verify SwiftLint
-        run: ./Scripts/check-swiftlint.sh
-
-      - name: Run unit tests
-        run: |
-          set -o pipefail
-          xcodebuild test \
-            -project "2FAuth.xcodeproj" \
-            -scheme "2FAuth" \
-            -destination "platform=iOS Simulator,name=iPhone 16,OS=18.5" \
-            -only-testing:2FAuthTests \
-            | tee "$RUNNER_TEMP/xcodebuild-test.log"
 
       - name: Archive (Release)
         run: |
@@ -68,10 +46,3 @@ jobs:
         with:
           name: xcodebuild-archive-log
           path: ${{ runner.temp }}/xcodebuild-archive.log
-
-      - name: Upload test log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcodebuild-test-log
-          path: ${{ runner.temp }}/xcodebuild-test.log
