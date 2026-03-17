@@ -50,7 +50,7 @@ final class UserDefaultsAppConfigStore: AppConfigStore {
                 let rawValue = defaults.string(forKey: Keys.transportPolicy),
                 let policy = TransportPolicy(rawValue: rawValue)
             else {
-                return .allowHTTP
+                return .secureOnly
             }
             return policy
         }

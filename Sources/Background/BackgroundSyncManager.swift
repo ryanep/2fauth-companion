@@ -9,15 +9,15 @@ import SwiftData
         static let taskIdentifier = "com.ryanep.2fauth.sync.refresh"
 
         private let modelContainer: ModelContainer
-        private let configStore: AppConfigStore
-        private let secretStore: SecretStore
-        private let repository: AccountRepository
+        private var configStore: any AppConfigStore
+        private let secretStore: any SecretStore
+        private let repository: any AccountRepository
 
         init(
             modelContainer: ModelContainer,
-            configStore: AppConfigStore,
-            secretStore: SecretStore,
-            repository: AccountRepository
+            configStore: any AppConfigStore,
+            secretStore: any SecretStore,
+            repository: any AccountRepository
         ) {
             self.modelContainer = modelContainer
             self.configStore = configStore
@@ -38,7 +38,7 @@ import SwiftData
 
         func scheduleAppRefresh() {
             let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
-            let minutes = AppConfigStore.backgroundSyncIntervalMinutes
+            let minutes = UserDefaultsAppConfigStore.backgroundSyncIntervalMinutes
             request.earliestBeginDate = Date(timeIntervalSinceNow: TimeInterval(minutes * 60))
             do {
                 try BGTaskScheduler.shared.submit(request)
@@ -122,9 +122,9 @@ import SwiftData
 
         init(
             modelContainer: ModelContainer,
-            configStore: AppConfigStore,
-            secretStore: SecretStore,
-            repository: AccountRepository
+            configStore: any AppConfigStore,
+            secretStore: any SecretStore,
+            repository: any AccountRepository
         ) {}
 
         func register() {}

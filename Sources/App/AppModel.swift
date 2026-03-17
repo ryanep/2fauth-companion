@@ -23,9 +23,9 @@ final class AppModel: ObservableObject {
     @Published var lastSuccessfulSyncAt: Date?
 
     private let modelContext: ModelContext
-    private let configStore: AppConfigStore
-    private let secretStore: SecretStore
-    private let repository: AccountRepository
+    private var configStore: any AppConfigStore
+    private let secretStore: any SecretStore
+    private let repository: any AccountRepository
     private let scheduleBackgroundRefresh: () -> Void
     private let biometricAuthenticator: any BiometricAuthenticating
 
@@ -39,9 +39,9 @@ final class AppModel: ObservableObject {
 
     init(
         modelContext: ModelContext,
-        configStore: AppConfigStore,
-        secretStore: SecretStore,
-        repository: AccountRepository,
+        configStore: any AppConfigStore,
+        secretStore: any SecretStore,
+        repository: any AccountRepository,
         scheduleBackgroundRefresh: @escaping () -> Void,
         biometricAuthenticator: any BiometricAuthenticating = BiometricAuthenticator()
     ) {
@@ -214,7 +214,7 @@ final class AppModel: ObservableObject {
     }
 
     func updateAutoLockTimeout(seconds: Int) {
-        let normalized = AppConfigStore.normalizeAutoLockTimeout(seconds)
+        let normalized = UserDefaultsAppConfigStore.normalizeAutoLockTimeout(seconds)
         autoLockTimeoutSeconds = normalized
         configStore.autoLockTimeoutSeconds = normalized
     }

@@ -6,7 +6,7 @@ import XCTest
 
 @MainActor
 final class SecurityStoreTests: XCTestCase {
-    nonisolated(unsafe) private let secretStore = SecretStore()
+    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
 
     override func setUp() {
         super.setUp()
@@ -22,7 +22,7 @@ final class SecurityStoreTests: XCTestCase {
 
     func testKeychainAccessibilityPolicyIsAfterFirstUnlockDeviceOnly() {
         XCTAssertEqual(
-            SecretStore.keychainAccessibilityValue,
+            KeychainSecretStore.keychainAccessibilityValue,
             kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
         )
     }
@@ -32,8 +32,8 @@ final class SecurityStoreTests: XCTestCase {
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: SecretStore.serviceIdentifier,
-            kSecAttrAccount as String: SecretStore.apiKeyAccountIdentifier,
+            kSecAttrService as String: KeychainSecretStore.serviceIdentifier,
+            kSecAttrAccount as String: KeychainSecretStore.apiKeyAccountIdentifier,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -44,11 +44,11 @@ final class SecurityStoreTests: XCTestCase {
 
         let attributes = item as? [String: Any]
         let accessible = attributes?[kSecAttrAccessible as String] as? String
-        XCTAssertEqual(accessible, SecretStore.keychainAccessibilityValue)
+        XCTAssertEqual(accessible, KeychainSecretStore.keychainAccessibilityValue)
     }
 
     func testDecryptFailsForTamperedPayload() throws {
-        let cryptoStore = CryptoStore(secretStore: secretStore)
+        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
         let encrypted = try cryptoStore.encrypt("ABCDEF")
         var tampered = encrypted
         tampered[tampered.startIndex] ^= 0xFF
@@ -57,7 +57,7 @@ final class SecurityStoreTests: XCTestCase {
     }
 
     func testResetEncryptionKeyBreaksOldCiphertextAndAllowsFreshRoundTrip() throws {
-        let cryptoStore = CryptoStore(secretStore: secretStore)
+        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
         let encryptedBeforeReset = try cryptoStore.encrypt("FIRST")
 
         XCTAssertTrue(cryptoStore.resetEncryptionKey())

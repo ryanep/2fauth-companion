@@ -6,7 +6,7 @@ import XCTest
 
 @MainActor
 final class AccountRepositoryTests: XCTestCase {
-    nonisolated(unsafe) private let secretStore = SecretStore()
+    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
 
     override func setUp() {
         super.setUp()
@@ -155,10 +155,10 @@ final class AccountRepositoryTests: XCTestCase {
         XCTAssertEqual(message, String(localized: "sync.error.generic_failed"))
     }
 
-    private func makeRepository() -> AccountRepository {
-        let apiClient = APIClient(session: makeMockedURLSession())
-        let cryptoStore = CryptoStore(secretStore: secretStore)
-        return AccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
+    private func makeRepository() -> DefaultAccountRepository {
+        let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
+        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
+        return DefaultAccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
     }
 
     private func matches(_ actual: SyncResult, expected: SyncResult) -> Bool {

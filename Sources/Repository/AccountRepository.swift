@@ -8,11 +8,11 @@ enum SyncResult {
 }
 
 @MainActor
-final class AccountRepository {
-    private let apiClient: APIClient
-    private let cryptoStore: CryptoStore
+final class DefaultAccountRepository: AccountRepository {
+    private let apiClient: any APIClient
+    private let cryptoStore: any CryptoStore
 
-    init(apiClient: APIClient, cryptoStore: CryptoStore) {
+    init(apiClient: any APIClient, cryptoStore: any CryptoStore) {
         self.apiClient = apiClient
         self.cryptoStore = cryptoStore
     }
@@ -21,8 +21,8 @@ final class AccountRepository {
         _ = try cryptoStore.ensureEncryptionKey()
     }
 
-    func decryptSecret(_ encrypted: Data) throws -> String {
-        try cryptoStore.decrypt(encrypted)
+    func decryptSecret(_ encryptedSecret: Data) throws -> String {
+        try cryptoStore.decrypt(encryptedSecret)
     }
 
     func syncAccounts(context: ModelContext, baseURL: URL, apiKey: String, includeSecrets: Bool) async -> SyncResult {

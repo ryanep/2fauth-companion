@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-final class APIClient {
+final class URLSessionAPIClient: APIClient {
     private let session: URLSession
 
     init(session: URLSession = .shared) {
