@@ -1,0 +1,48 @@
+name: Release Archive Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  archive:
+    name: Archive Release Build
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify release test-hook guardrail
+        run: swift "Scripts/check-release-test-hooks.swift"
+
+      - name: Install swift-format (if needed)
+        run: |
+          if command -v swift-format >/dev/null 2>&1 || xcrun --find swift-format >/dev/null 2>&1; then
+            exit 0
+          fi
+          brew install swift-format
+
+      - name: Verify Swift formatting
+        run: ./Scripts/check-swift-format.sh
+
+      - name: Archive (Release)
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project "2FAuth.xcodeproj" \
+            -scheme "2FAuth" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/2FAuth.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/xcodebuild-archive.log"
+
+      - name: Upload archive log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-archive-log
+          path: ${{ runner.temp }}/xcodebuild-archive.log

@@ -1,11 +1,12 @@
 import Foundation
 import SwiftData
 import XCTest
+
 @testable import TwoFAuth
 
 @MainActor
 final class AppModelStateMachineTests: XCTestCase {
-    nonisolated(unsafe) private let secretStore = SecretStore()
+    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
 
     override func setUp() {
         super.setUp()
@@ -205,7 +206,7 @@ final class AppModelStateMachineTests: XCTestCase {
 
 @MainActor
 final class BackgroundSyncManagerBehaviorTests: XCTestCase {
-    nonisolated(unsafe) private let secretStore = SecretStore()
+    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
 
     override func setUp() {
         super.setUp()

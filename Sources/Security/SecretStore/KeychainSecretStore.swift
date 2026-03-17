@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-final class SecretStore {
+final class KeychainSecretStore: SecretStore {
     static let serviceIdentifier = "com.ryanep.2fauth.secretstore"
     static let apiKeyAccountIdentifier = "api-key"
     static let encryptionKeyAccountIdentifier = "encryption-key"
@@ -43,7 +43,7 @@ final class SecretStore {
             kSecAttrService as String: Self.serviceIdentifier,
             kSecAttrAccount as String: account,
             kSecAttrAccessible as String: Self.keychainAccessibilityValue,
-            kSecValueData as String: data
+            kSecValueData as String: data,
         ]
 
         SecItemDelete(query as CFDictionary)
@@ -60,7 +60,7 @@ final class SecretStore {
             kSecAttrService as String: Self.serviceIdentifier,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
 
         var item: AnyObject?
@@ -76,7 +76,7 @@ final class SecretStore {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.serviceIdentifier,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
         ]
 
         let status = SecItemDelete(query as CFDictionary)

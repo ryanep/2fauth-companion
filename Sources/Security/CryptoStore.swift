@@ -2,9 +2,9 @@ import CryptoKit
 import Foundation
 
 final class CryptoStore {
-    private let secretStore: SecretStore
+    private let secretStore: any SecretStore
 
-    init(secretStore: SecretStore) {
+    init(secretStore: any SecretStore) {
         self.secretStore = secretStore
     }
 
