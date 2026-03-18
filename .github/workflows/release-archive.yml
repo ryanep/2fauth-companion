@@ -28,6 +28,16 @@ jobs:
       - name: Verify Swift formatting
         run: ./Scripts/check-swift-format.sh
 
+      - name: Install SwiftLint (if needed)
+        run: |
+          if command -v swiftlint >/dev/null 2>&1 || [ -x "/opt/homebrew/bin/swiftlint" ] || [ -x "/usr/local/bin/swiftlint" ]; then
+            exit 0
+          fi
+          brew install swiftlint
+
+      - name: Verify SwiftLint
+        run: ./Scripts/check-swiftlint.sh
+
       - name: Archive (Release)
         run: |
           set -o pipefail
