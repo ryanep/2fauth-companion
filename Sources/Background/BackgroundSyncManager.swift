@@ -26,8 +26,10 @@ import SwiftData
         }
 
         func register() {
-            BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.taskIdentifier, using: nil) {
-                [weak self] task in
+            BGTaskScheduler.shared.register(
+                forTaskWithIdentifier: Self.taskIdentifier,
+                using: nil
+            ) { [weak self] task in
                 guard let self, let refreshTask = task as? BGAppRefreshTask else {
                     task.setTaskCompleted(success: false)
                     return
@@ -71,9 +73,7 @@ import SwiftData
                 return false
             }
 
-            guard let apiKey = secretStore.loadAPIKey(), let baseURLString = configStore.baseURLString,
-                let baseURL = URL(string: baseURLString)
-            else {
+            guard let apiKey = secretStore.loadAPIKey(), let baseURL = validatedBaseURLForBackgroundSync() else {
                 return true
             }
 
@@ -111,6 +111,23 @@ import SwiftData
                 return true
             case .transient:
                 return true
+            }
+        }
+
+        private func validatedBaseURLForBackgroundSync() -> URL? {
+            guard let baseURLString = configStore.baseURLString else {
+                return nil
+            }
+
+            switch TransportURLValidator.validateBaseURL(baseURLString, policy: configStore.transportPolicy) {
+            case .success(let url):
+                return url
+            case .failure(.insecureSchemeNotAllowed):
+                ErrorReporter.report("background.sync_skipped_insecure_transport")
+                return nil
+            case .failure(.invalid):
+                ErrorReporter.report("background.sync_skipped_invalid_base_url")
+                return nil
             }
         }
     }

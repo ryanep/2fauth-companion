@@ -38,6 +38,16 @@ jobs:
       - name: Verify SwiftLint
         run: ./Scripts/check-swiftlint.sh
 
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project "2FAuth.xcodeproj" \
+            -scheme "2FAuth" \
+            -destination "platform=iOS Simulator,name=iPhone 16" \
+            -only-testing:2FAuthTests \
+            | tee "$RUNNER_TEMP/xcodebuild-test.log"
+
       - name: Archive (Release)
         run: |
           set -o pipefail
@@ -56,3 +66,10 @@ jobs:
         with:
           name: xcodebuild-archive-log
           path: ${{ runner.temp }}/xcodebuild-archive.log
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-test-log
+          path: ${{ runner.temp }}/xcodebuild-test.log

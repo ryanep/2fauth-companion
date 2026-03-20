@@ -5,6 +5,7 @@
 "login.button.submit" = "Log In";
 "login.error.api_key_required" = "API key is required.";
 "login.error.invalid_base_url" = "Enter a valid base URL (http:// or https://).";
+"login.warning.insecure_transport" = "Warning: HTTP connections are unencrypted. Use HTTPS when possible.";
 "login.error.secure_store_failed" = "Could not store credentials securely.";
 "login.error.invalid_credentials" = "Login failed. Check API key and server URL.";
 "login.error.server_unreachable" = "Could not reach server: %@";

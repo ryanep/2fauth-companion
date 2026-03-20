@@ -6,6 +6,12 @@ import XCTest
 
 @MainActor
 final class AppModelStateMachineTests: XCTestCase {
+    private struct SUT {
+        let appModel: AppModel
+        let configStore: UserDefaultsAppConfigStore
+        let modelContext: ModelContext
+    }
+
     nonisolated(unsafe) private let secretStore = KeychainSecretStore()
 
     override func setUp() {
@@ -183,8 +189,8 @@ final class AppModelStateMachineTests: XCTestCase {
 
     private func makeSUT(
         testName: String,
-        biometricAuthenticator: any BiometricAuthenticating = MockBiometricAuthenticator(result: .success(true))
-    ) throws -> (appModel: AppModel, configStore: UserDefaultsAppConfigStore, modelContext: ModelContext) {
+        biometricAuthenticator: any BiometricAuthenticator = MockBiometricAuthenticator(result: .success(true))
+    ) throws -> SUT {
         let container = try makeInMemoryModelContainer()
         let context = ModelContext(container)
         let configStore = makeTestConfigStore(testName: testName)
@@ -200,7 +206,7 @@ final class AppModelStateMachineTests: XCTestCase {
             biometricAuthenticator: biometricAuthenticator
         )
 
-        return (appModel, configStore, context)
+        return SUT(appModel: appModel, configStore: configStore, modelContext: context)
     }
 }
 
@@ -283,11 +289,59 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
         XCTAssertNotNil(secretStore.loadAPIKey())
     }
 
-    private func makeSUT(testName: String) throws -> (manager: BackgroundSyncManager, configStore: UserDefaultsAppConfigStore) {
+    func testRunBackgroundSyncSkipsHTTPWhenPolicyIsSecureOnly() async throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "http://example.com"
+        setup.configStore.transportPolicy = .secureOnly
+        try secretStore.saveAPIKey("api-key")
+
+        let result = await setup.manager.runBackgroundSync(isCancelled: { false })
+
+        XCTAssertTrue(result)
+        XCTAssertFalse(setup.configStore.requiresRelogin)
+        XCTAssertNotNil(secretStore.loadAPIKey())
+    }
+
+    func testRunBackgroundSyncAllowsHTTPWhenPolicyAllowsHTTP() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data("[]".utf8))
+        }
+
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "http://example.com"
+        setup.configStore.transportPolicy = .allowHTTP
+        try secretStore.saveAPIKey("api-key")
+
+        let result = await setup.manager.runBackgroundSync(isCancelled: { false })
+
+        XCTAssertTrue(result)
+        XCTAssertFalse(setup.configStore.requiresRelogin)
+        XCTAssertNotNil(secretStore.loadAPIKey())
+    }
+
+    func testRunBackgroundSyncSkipsInvalidBaseURL() async throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "not-a-url"
+        try secretStore.saveAPIKey("api-key")
+
+        let result = await setup.manager.runBackgroundSync(isCancelled: { false })
+
+        XCTAssertTrue(result)
+        XCTAssertFalse(setup.configStore.requiresRelogin)
+        XCTAssertNotNil(secretStore.loadAPIKey())
+    }
+
+    private func makeSUT(
+        testName: String
+    ) throws -> (manager: BackgroundSyncManager, configStore: UserDefaultsAppConfigStore) {
         let container = try makeInMemoryModelContainer()
         let configStore = makeTestConfigStore(testName: testName)
         let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
-        let repository = DefaultAccountRepository(apiClient: apiClient, cryptoStore: AESGCMCryptoStore(secretStore: secretStore))
+        let repository = DefaultAccountRepository(
+            apiClient: apiClient,
+            cryptoStore: AESGCMCryptoStore(secretStore: secretStore)
+        )
         let manager = BackgroundSyncManager(
             modelContainer: container,
             configStore: configStore,
@@ -298,7 +352,7 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
     }
 }
 
-private struct MockBiometricAuthenticator: BiometricAuthenticating {
+private struct MockBiometricAuthenticator: BiometricAuthenticator {
     let result: Result<Bool, Error>
 
     @MainActor

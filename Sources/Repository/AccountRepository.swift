@@ -65,15 +65,12 @@ final class DefaultAccountRepository: AccountRepository {
 
     private func upsert(remoteAccounts: [APIAccount], context: ModelContext) throws {
         let existing = try context.fetch(FetchDescriptor<AccountEntity>())
-        var byID: [Int: AccountEntity] = [:]
-        for account in existing {
-            byID[account.remoteID] = account
-        }
+        var byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.remoteID, $0) })
 
         var hasAnyMutation = false
-
         var seen: Set<Int> = []
         let now = Date()
+
         for remote in remoteAccounts {
             guard let id = remote.id else {
                 continue
@@ -81,68 +78,20 @@ final class DefaultAccountRepository: AccountRepository {
             seen.insert(id)
 
             guard let entity = byID[id] else {
-                let insertedEntity = AccountEntity(
-                    remoteID: id,
-                    groupID: remote.groupID,
-                    service: remote.service,
-                    account: remote.account,
-                    icon: remote.icon,
-                    otpType: remote.otpType,
-                    digits: remote.digits,
-                    algorithm: remote.algorithm,
-                    period: remote.period,
-                    counter: remote.counter,
-                    encryptedSecret: nil,
-                    updatedAt: now
-                )
-                if let secret = remote.secret {
-                    insertedEntity.encryptedSecret = try cryptoStore.encrypt(secret)
-                }
-
+                let insertedEntity = try makeEntity(for: remote, id: id, updatedAt: now)
                 context.insert(insertedEntity)
                 byID[id] = insertedEntity
                 hasAnyMutation = true
                 continue
             }
 
-            let metadataChanged =
-                entity.groupID != remote.groupID || entity.service != remote.service || entity.account != remote.account
-                || entity.icon != remote.icon || entity.otpType != remote.otpType || entity.digits != remote.digits
-                || entity.algorithm != remote.algorithm || entity.period != remote.period
-                || entity.counter != remote.counter
-
-            var secretChanged = false
-            if let remoteSecret = remote.secret {
-                let shouldRewriteSecret: Bool
-                if let encryptedSecret = entity.encryptedSecret {
-                    if let localSecret = try? cryptoStore.decrypt(encryptedSecret) {
-                        shouldRewriteSecret = localSecret != remoteSecret
-                    } else {
-                        shouldRewriteSecret = true
-                    }
-                } else {
-                    shouldRewriteSecret = true
-                }
-
-                if shouldRewriteSecret {
-                    entity.encryptedSecret = try cryptoStore.encrypt(remoteSecret)
-                    secretChanged = true
-                }
-            }
+            let metadataChanged = hasMetadataChanges(entity: entity, remote: remote)
+            let secretChanged = try updateSecretIfNeeded(remoteSecret: remote.secret, entity: entity)
 
             if metadataChanged || secretChanged {
                 if metadataChanged {
-                    entity.groupID = remote.groupID
-                    entity.service = remote.service
-                    entity.account = remote.account
-                    entity.icon = remote.icon
-                    entity.otpType = remote.otpType
-                    entity.digits = remote.digits
-                    entity.algorithm = remote.algorithm
-                    entity.period = remote.period
-                    entity.counter = remote.counter
+                    applyMetadata(from: remote, to: entity)
                 }
-
                 entity.updatedAt = now
                 hasAnyMutation = true
             }
@@ -156,5 +105,77 @@ final class DefaultAccountRepository: AccountRepository {
         if hasAnyMutation {
             try context.save()
         }
+    }
+
+    private func makeEntity(for remote: APIAccount, id: Int, updatedAt: Date) throws -> AccountEntity {
+        let entity = AccountEntity(
+            remoteID: id,
+            groupID: remote.groupID,
+            service: remote.service,
+            account: remote.account,
+            icon: remote.icon,
+            otpType: remote.otpType,
+            digits: remote.digits,
+            algorithm: remote.algorithm,
+            period: remote.period,
+            counter: remote.counter,
+            encryptedSecret: nil,
+            updatedAt: updatedAt
+        )
+
+        if let secret = remote.secret {
+            entity.encryptedSecret = try cryptoStore.encrypt(secret)
+        }
+
+        return entity
+    }
+
+    private func hasMetadataChanges(entity: AccountEntity, remote: APIAccount) -> Bool {
+        entity.groupID != remote.groupID
+            || entity.service != remote.service
+            || entity.account != remote.account
+            || entity.icon != remote.icon
+            || entity.otpType != remote.otpType
+            || entity.digits != remote.digits
+            || entity.algorithm != remote.algorithm
+            || entity.period != remote.period
+            || entity.counter != remote.counter
+    }
+
+    private func applyMetadata(from remote: APIAccount, to entity: AccountEntity) {
+        entity.groupID = remote.groupID
+        entity.service = remote.service
+        entity.account = remote.account
+        entity.icon = remote.icon
+        entity.otpType = remote.otpType
+        entity.digits = remote.digits
+        entity.algorithm = remote.algorithm
+        entity.period = remote.period
+        entity.counter = remote.counter
+    }
+
+    private func updateSecretIfNeeded(remoteSecret: String?, entity: AccountEntity) throws -> Bool {
+        guard let remoteSecret else {
+            return false
+        }
+
+        guard shouldRewriteSecret(remoteSecret: remoteSecret, encryptedSecret: entity.encryptedSecret) else {
+            return false
+        }
+
+        entity.encryptedSecret = try cryptoStore.encrypt(remoteSecret)
+        return true
+    }
+
+    private func shouldRewriteSecret(remoteSecret: String, encryptedSecret: Data?) -> Bool {
+        guard let encryptedSecret else {
+            return true
+        }
+
+        guard let localSecret = try? cryptoStore.decrypt(encryptedSecret) else {
+            return true
+        }
+
+        return localSecret != remoteSecret
     }
 }
