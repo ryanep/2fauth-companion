@@ -27,7 +27,7 @@ final class AppModel: ObservableObject {
     private let secretStore: any SecretStore
     private let repository: any AccountRepository
     private let scheduleBackgroundRefresh: () -> Void
-    private let biometricAuthenticator: any BiometricAuthenticating
+    private let biometricAuthenticator: any BiometricAuthenticator
 
     private var unlockedState: SessionState = .unlocked
     private var backgroundedAt: Date?
@@ -43,7 +43,7 @@ final class AppModel: ObservableObject {
         secretStore: any SecretStore,
         repository: any AccountRepository,
         scheduleBackgroundRefresh: @escaping () -> Void,
-        biometricAuthenticator: any BiometricAuthenticating = BiometricAuthenticator()
+        biometricAuthenticator: any BiometricAuthenticator = LocalBiometricAuthenticator()
     ) {
         self.modelContext = modelContext
         self.configStore = configStore
@@ -219,6 +219,86 @@ final class AppModel: ObservableObject {
         configStore.autoLockTimeoutSeconds = normalized
     }
 
+    func handleScenePhaseChange(_ phase: ScenePhase) {
+        switch phase {
+        case .background:
+            backgroundedAt = Date()
+        case .active:
+            guard let backgroundedAt else { return }
+            let elapsed = Date().timeIntervalSince(backgroundedAt)
+            self.backgroundedAt = nil
+            if shouldAutoLock(after: elapsed) {
+                sessionState = .locked
+            }
+        default:
+            break
+        }
+    }
+
+    private func shouldAutoLock(after elapsed: TimeInterval) -> Bool {
+        guard sessionState == .unlocked || sessionState == .degradedOffline else {
+            return false
+        }
+
+        if autoLockTimeoutSeconds == 0 {
+            return true
+        }
+
+        return elapsed >= TimeInterval(autoLockTimeoutSeconds)
+    }
+
+    private func configuredBaseURL() -> URL? {
+        guard let value = configStore.baseURLString else {
+            return nil
+        }
+        return validatedBaseURL(from: value)
+    }
+
+    private var hasSessionConfiguration: Bool {
+        configuredBaseURL() != nil && secretStore.loadAPIKey() != nil
+    }
+
+    private func validatedBaseURL(from input: String) -> URL? {
+        switch TransportURLValidator.validateBaseURL(input, policy: configStore.transportPolicy) {
+        case .success(let url):
+            return url
+        case .failure:
+            return nil
+        }
+    }
+
+    private func enforceReloginWipe() async {
+        sessionState = .reloginRequired
+        await wipeAllData(requireRelogin: true)
+        syncMessage = String(localized: "sync.status.session_expired")
+    }
+
+    private func wipeAllData(requireRelogin: Bool) async {
+        #if DEBUG
+            if let delayMS = UInt64(ProcessInfo.processInfo.environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
+                try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
+            }
+        #endif
+
+        do {
+            try repository.wipeCachedData(context: modelContext)
+        } catch {
+            ErrorReporter.report("sync.cache_clear_failed")
+            syncMessage = String(localized: "sync.error.cache_clear_failed")
+        }
+
+        _ = secretStore.deleteAPIKey()
+        _ = secretStore.deleteEncryptionKey()
+
+        configStore.requiresRelogin = requireRelogin
+        configStore.lastSuccessfulSyncAt = nil
+        lastSuccessfulSyncAt = nil
+        baseURLInput = configStore.baseURLString ?? ""
+        unlockedState = .unlocked
+    }
+}
+
+extension AppModel {
     func generateTOTP(for account: AccountEntity, at date: Date = Date()) -> String? {
         guard normalizedOTPType(account.otpType) == "totp", let encryptedSecret = account.encryptedSecret else {
             return nil
@@ -266,136 +346,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func handleScenePhaseChange(_ phase: ScenePhase) {
-        switch phase {
-        case .background:
-            backgroundedAt = Date()
-        case .active:
-            guard let backgroundedAt else { return }
-            let elapsed = Date().timeIntervalSince(backgroundedAt)
-            self.backgroundedAt = nil
-            if shouldAutoLock(after: elapsed) {
-                sessionState = .locked
-            }
-        default:
-            break
-        }
-    }
-
-    private func shouldAutoLock(after elapsed: TimeInterval) -> Bool {
-        guard sessionState == .unlocked || sessionState == .degradedOffline else {
-            return false
-        }
-
-        if autoLockTimeoutSeconds == 0 {
-            return true
-        }
-
-        return elapsed >= TimeInterval(autoLockTimeoutSeconds)
-    }
-
-    private func configuredBaseURL() -> URL? {
-        guard let value = configStore.baseURLString else {
-            return nil
-        }
-        return validatedBaseURL(from: value)
-    }
-
-    private var hasSessionConfiguration: Bool {
-        configuredBaseURL() != nil && secretStore.loadAPIKey() != nil
-    }
-
     private func normalizedOTPType(_ raw: String) -> String {
         raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-    }
-
-    private func validatedBaseURL(from input: String) -> URL? {
-        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: value), let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme)
-        else {
-            return nil
-        }
-        return url
-    }
-
-    private func enforceReloginWipe() async {
-        sessionState = .reloginRequired
-        await wipeAllData(requireRelogin: true)
-        syncMessage = String(localized: "sync.status.session_expired")
-    }
-
-    private func wipeAllData(requireRelogin: Bool) async {
-        #if DEBUG
-            if let delayMS = UInt64(ProcessInfo.processInfo.environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
-                try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
-            }
-        #endif
-
-        do {
-            try repository.wipeCachedData(context: modelContext)
-        } catch {
-            ErrorReporter.report("sync.cache_clear_failed")
-            syncMessage = String(localized: "sync.error.cache_clear_failed")
-        }
-
-        _ = secretStore.deleteAPIKey()
-        _ = secretStore.deleteEncryptionKey()
-
-        configStore.requiresRelogin = requireRelogin
-        configStore.lastSuccessfulSyncAt = nil
-        lastSuccessfulSyncAt = nil
-        baseURLInput = configStore.baseURLString ?? ""
-        unlockedState = .unlocked
-    }
-}
-
-protocol BiometricAuthenticating {
-    @MainActor
-    func authenticate(reason: String) async throws -> Bool
-}
-
-struct BiometricAuthenticator: BiometricAuthenticating {
-    @MainActor
-    func authenticate(reason: String) async throws -> Bool {
-        let context = LAContext()
-        var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
-            throw error ?? NSError(domain: "Biometric", code: -1)
-        }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) {
-                success, evalError in
-                if let evalError {
-                    continuation.resume(throwing: evalError)
-                } else {
-                    continuation.resume(returning: success)
-                }
-            }
-        }
-    }
-}
-
-enum ErrorReporter {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.ryanep.2fauth",
-        category: "diagnostics"
-    )
-
-    static func report(_ event: String, metadata: [String: String] = [:]) {
-        guard !metadata.isEmpty else {
-            logger.error("event=\(event, privacy: .public)")
-            return
-        }
-
-        let details =
-            metadata
-            .sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
-            .joined(separator: " ")
-
-        logger.error("event=\(event, privacy: .public) \(details, privacy: .public)")
     }
 }

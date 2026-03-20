@@ -4,6 +4,13 @@ struct LoginView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var apiKey: String = ""
 
+    private var usesInsecureHTTP: Bool {
+        appModel.baseURLInput
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasPrefix("http://")
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -19,6 +26,14 @@ struct LoginView: View {
                         .textInputAutocapitalization(.never)
                         .disableAutocorrection(true)
                         .accessibilityIdentifier("login.apiKey")
+                }
+
+                if usesInsecureHTTP {
+                    Section {
+                        Text("login.warning.insecure_transport")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
                 }
 
                 if let message = appModel.loginError {

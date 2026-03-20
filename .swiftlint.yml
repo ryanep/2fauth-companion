@@ -12,6 +12,7 @@ reporter: xcode
 
 disabled_rules:
   - line_length
+  - trailing_comma
   - trailing_whitespace
   - vertical_whitespace
   - opening_brace

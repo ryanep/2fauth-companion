@@ -23,16 +23,7 @@ struct ContentView: View {
             }
 
             if shouldShowPrivacyShield {
-                Color.black
-                    .ignoresSafeArea()
-
-                VStack(spacing: 10) {
-                    Image(systemName: "lock.fill")
-                        .font(.title2)
-                    Text("privacy_shield.title")
-                        .font(.headline)
-                }
-                .foregroundStyle(.white)
+                PrivacyShieldView()
             }
         }
         .onChange(of: appModel.sessionState) { _, newState in

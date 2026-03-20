@@ -7,22 +7,28 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00B5007AE0070FF17865C3D9 /* BiometricAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75666BD3660077B6A3342176 /* BiometricAuthenticator.swift */; };
 		0326345C9A5F080542ACD3B7 /* OTPGeneratorCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290D6BC3334F86F3B958A070 /* OTPGeneratorCore.swift */; };
 		045BB6ABE2B5880746F3C8EE /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5988D2822260422DDA9C576A /* TestSupport.swift */; };
+		0F334A2259B1E1F070DEB5E9 /* APIClientProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6CB5B79497A9E57773CF756 /* APIClientProtocol.swift */; };
 		22E9C74C3B07E93C86D8ADA6 /* AccountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D618BF64A7D0ACB43D222E0 /* AccountsView.swift */; };
 		25E28FE08EFA4504CF7700B2 /* KeychainSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69CFB693FCAAA6064A7034E0 /* KeychainSecretStore.swift */; };
 		30C73517B6DCFCF4C0D12987 /* UserDefaultsAppConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FCF882084E8DD2A1D1401E /* UserDefaultsAppConfigStore.swift */; };
 		3727079AEE97EC1799FBCC86 /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 087FB4E6A32C82FFEE3CBBAF /* APIClientTests.swift */; };
+		42FD17AAF753A4DEA39ADD15 /* AccountRepositoryProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8E1A6AB65B2F40C90EF0CAD /* AccountRepositoryProtocol.swift */; };
 		44E2A903D819540F1569D30D /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 2AF7393C66AB8BD7B970D34F /* InfoPlist.strings */; };
 		4C1E7CB3BB23647B57B7E425 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85453843E9453C29F9A2895F /* SettingsView.swift */; };
 		532507B57EE5C0C20D0F5EAD /* BackgroundSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3460090787747D40C8B95722 /* BackgroundSyncManager.swift */; };
 		5383BFEE13C98D4E74DA2A3B /* TOTPGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D05B1429B1179CA17BB6D4 /* TOTPGenerator.swift */; };
 		5B4716446D0345CFA4D04B88 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE7D3BFBBDE32947145FC885 /* LoginView.swift */; };
+		5F3FF786683C684785BF97ED /* AppModelTransportPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B811F676470859364AC77D7 /* AppModelTransportPolicyTests.swift */; };
 		64C4B3B699E1D22023CF4F12 /* LockScreenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B9455658F8190EA43BA7253 /* LockScreenView.swift */; };
 		66B2ACA4E3D29411A0B19F7D /* Base32.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E082CCBF54710F464FF9BC0 /* Base32.swift */; };
 		670BEE221C07FDF27EBCF7A6 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D8A1BF565728DA856B4A461 /* AppModel.swift */; };
 		69465A8765298C095E5F8999 /* SecretStoreProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E12F81FAA85EEF2D2198634 /* SecretStoreProtocol.swift */; };
 		709E45090389C0359D447D73 /* AccountEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1D658EBA7C2C46EE054EFB5 /* AccountEntity.swift */; };
+		7260050553BBA8558C1350BE /* ErrorReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BAF12A56193AD47AAC62C12 /* ErrorReporter.swift */; };
+		86604BEBF437EA513B267546 /* TransportURLValidatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652921529D27032F1FD16569 /* TransportURLValidatorTests.swift */; };
 		8958E09487AAAA3F5A6A057F /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 370BB75282708FD814B967D0 /* MainTabView.swift */; };
 		8B0D11B46331CBEBD7986685 /* AccountRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A1472BBC4ED57947ADE60 /* AccountRepositoryTests.swift */; };
 		8C823AA4AA916D6ACE435A81 /* AESGCMCryptoStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F89371A551AF85C481E99A /* AESGCMCryptoStore.swift */; };
@@ -31,13 +37,12 @@
 		AA2F98DCC7126A2C46C04528 /* CryptoStoreProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C306985A647D7EDEF7FC1E58 /* CryptoStoreProtocol.swift */; };
 		AE05CAD1C53B62B89CCA5E80 /* SecurityStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70CF1B7F3AA3C29BFF14C45 /* SecurityStoreTests.swift */; };
 		AEEB6CDAF9ABF05AD1DC1058 /* TwoFAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171B81C8A54E36C07013E50A /* TwoFAuthTests.swift */; };
-		A1B2C3D4E5F60718293A4B5C /* APIClientProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* APIClientProtocol.swift */; };
-		B1C2D3E4F5061728394A5B6C /* AccountRepositoryProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6D /* AccountRepositoryProtocol.swift */; };
 		B9950B9CC5ADA7EF60C37867 /* HOTPGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC003968E64FB42BF169F07C /* HOTPGenerator.swift */; };
 		C02463C0F7ED3C09A0EDEF96 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEE99819453A6510C0DDAA4A /* Models.swift */; };
 		D0295EFD4D16A5A9C95E9F8F /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = F9F4205587AC95CC8EAE6F49 /* Localizable.strings */; };
 		DA73A65F949690BA0FEA12DC /* TwoFAuthApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 435E8379033CD87F9C47052D /* TwoFAuthApp.swift */; };
 		DDED777F11F8B151572AF81F /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5515BF308A085009A8E2399B /* APIError.swift */; };
+		E0A3F02B8CF1678273F1F480 /* PrivacyShieldView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7544FA082843A583DE5526F /* PrivacyShieldView.swift */; };
 		E67A709CA571C7F89EA80EBA /* AppModelStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D84EB658859103F6C6C6AB /* AppModelStateMachineTests.swift */; };
 		ED922707B7647AB79768AA41 /* SteamGuardGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 456F6FB21871EBC4E8B5B319 /* SteamGuardGenerator.swift */; };
 		F72F7B04D77F3C6B6DCFB66D /* AppConfigStoreProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE43DCB736D47C66A4E15561 /* AppConfigStoreProtocol.swift */; };
@@ -66,6 +71,7 @@
 /* Begin PBXFileReference section */
 		087FB4E6A32C82FFEE3CBBAF /* APIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
 		09673ACF67CB7227E8D7DA2A /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		0BAF12A56193AD47AAC62C12 /* ErrorReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorReporter.swift; sourceTree = "<group>"; };
 		0E12F81FAA85EEF2D2198634 /* SecretStoreProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecretStoreProtocol.swift; sourceTree = "<group>"; };
 		171B81C8A54E36C07013E50A /* TwoFAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFAuthTests.swift; sourceTree = "<group>"; };
 		1B9455658F8190EA43BA7253 /* LockScreenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenView.swift; sourceTree = "<group>"; };
@@ -74,6 +80,7 @@
 		3460090787747D40C8B95722 /* BackgroundSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSyncManager.swift; sourceTree = "<group>"; };
 		35FCF882084E8DD2A1D1401E /* UserDefaultsAppConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDefaultsAppConfigStore.swift; sourceTree = "<group>"; };
 		370BB75282708FD814B967D0 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		3B811F676470859364AC77D7 /* AppModelTransportPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelTransportPolicyTests.swift; sourceTree = "<group>"; };
 		435E8379033CD87F9C47052D /* TwoFAuthApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFAuthApp.swift; sourceTree = "<group>"; };
 		456F6FB21871EBC4E8B5B319 /* SteamGuardGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SteamGuardGenerator.swift; sourceTree = "<group>"; };
 		492885A42FC7CE3B40046D55 /* 2FAuth.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = 2FAuth.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -81,9 +88,11 @@
 		5515BF308A085009A8E2399B /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		5988D2822260422DDA9C576A /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		60D05B1429B1179CA17BB6D4 /* TOTPGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOTPGenerator.swift; sourceTree = "<group>"; };
+		652921529D27032F1FD16569 /* TransportURLValidatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportURLValidatorTests.swift; sourceTree = "<group>"; };
 		69CFB693FCAAA6064A7034E0 /* KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSecretStore.swift; sourceTree = "<group>"; };
 		6E5A1472BBC4ED57947ADE60 /* AccountRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountRepositoryTests.swift; sourceTree = "<group>"; };
 		74FB010349A7BF026CA7D3B0 /* TwoFAuthUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFAuthUITests.swift; sourceTree = "<group>"; };
+		75666BD3660077B6A3342176 /* BiometricAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricAuthenticator.swift; sourceTree = "<group>"; };
 		7586A01A7FA4BA98A17E55B1 /* 2FAuthUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = 2FAuthUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B1262A5A476FCABCC3ECABE /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		85453843E9453C29F9A2895F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -91,11 +100,12 @@
 		92C22277E9F898A51605806B /* AccountRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountRepository.swift; sourceTree = "<group>"; };
 		99ACB7882619299769BB1B51 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		9D618BF64A7D0ACB43D222E0 /* AccountsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountsView.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718293A4B5D /* APIClientProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientProtocol.swift; sourceTree = "<group>"; };
-		B1C2D3E4F5061728394A5B6D /* AccountRepositoryProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountRepositoryProtocol.swift; sourceTree = "<group>"; };
+		A7544FA082843A583DE5526F /* PrivacyShieldView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyShieldView.swift; sourceTree = "<group>"; };
 		B951A99C8E36A6429EA25257 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		C306985A647D7EDEF7FC1E58 /* CryptoStoreProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoStoreProtocol.swift; sourceTree = "<group>"; };
+		C6CB5B79497A9E57773CF756 /* APIClientProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientProtocol.swift; sourceTree = "<group>"; };
 		D2D9338C8CC5748C88F0DB1D /* 2FAuthTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = 2FAuthTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D8E1A6AB65B2F40C90EF0CAD /* AccountRepositoryProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountRepositoryProtocol.swift; sourceTree = "<group>"; };
 		DA68A978214E94768AF1944D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		DC003968E64FB42BF169F07C /* HOTPGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HOTPGenerator.swift; sourceTree = "<group>"; };
 		DE43DCB736D47C66A4E15561 /* AppConfigStoreProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigStoreProtocol.swift; sourceTree = "<group>"; };
@@ -163,8 +173,8 @@
 		3B55C3D8A434536406E670DB /* Networking */ = {
 			isa = PBXGroup;
 			children = (
-				A1B2C3D4E5F60718293A4B5D /* APIClientProtocol.swift */,
 				B951A99C8E36A6429EA25257 /* APIClient.swift */,
+				C6CB5B79497A9E57773CF756 /* APIClientProtocol.swift */,
 				5515BF308A085009A8E2399B /* APIError.swift */,
 				EEE99819453A6510C0DDAA4A /* Models.swift */,
 			);
@@ -201,8 +211,8 @@
 		5D944EA080F0189799CCA085 /* Repository */ = {
 			isa = PBXGroup;
 			children = (
-				B1C2D3E4F5061728394A5B6D /* AccountRepositoryProtocol.swift */,
 				92C22277E9F898A51605806B /* AccountRepository.swift */,
+				D8E1A6AB65B2F40C90EF0CAD /* AccountRepositoryProtocol.swift */,
 			);
 			path = Repository;
 			sourceTree = "<group>";
@@ -279,8 +289,10 @@
 				6E5A1472BBC4ED57947ADE60 /* AccountRepositoryTests.swift */,
 				087FB4E6A32C82FFEE3CBBAF /* APIClientTests.swift */,
 				52D84EB658859103F6C6C6AB /* AppModelStateMachineTests.swift */,
+				3B811F676470859364AC77D7 /* AppModelTransportPolicyTests.swift */,
 				E70CF1B7F3AA3C29BFF14C45 /* SecurityStoreTests.swift */,
 				5988D2822260422DDA9C576A /* TestSupport.swift */,
+				652921529D27032F1FD16569 /* TransportURLValidatorTests.swift */,
 				171B81C8A54E36C07013E50A /* TwoFAuthTests.swift */,
 			);
 			name = Unit;
@@ -291,9 +303,12 @@
 			isa = PBXGroup;
 			children = (
 				1D8A1BF565728DA856B4A461 /* AppModel.swift */,
+				75666BD3660077B6A3342176 /* BiometricAuthenticator.swift */,
 				DA68A978214E94768AF1944D /* ContentView.swift */,
+				0BAF12A56193AD47AAC62C12 /* ErrorReporter.swift */,
 				1B9455658F8190EA43BA7253 /* LockScreenView.swift */,
 				370BB75282708FD814B967D0 /* MainTabView.swift */,
+				A7544FA082843A583DE5526F /* PrivacyShieldView.swift */,
 				435E8379033CD87F9C47052D /* TwoFAuthApp.swift */,
 			);
 			path = App;
@@ -429,19 +444,21 @@
 			buildActionMask = 2147483647;
 			files = (
 				8C823AA4AA916D6ACE435A81 /* AESGCMCryptoStore.swift in Sources */,
-				A1B2C3D4E5F60718293A4B5C /* APIClientProtocol.swift in Sources */,
 				FED281828F2B42889714E088 /* APIClient.swift in Sources */,
+				0F334A2259B1E1F070DEB5E9 /* APIClientProtocol.swift in Sources */,
 				DDED777F11F8B151572AF81F /* APIError.swift in Sources */,
 				709E45090389C0359D447D73 /* AccountEntity.swift in Sources */,
-				B1C2D3E4F5061728394A5B6C /* AccountRepositoryProtocol.swift in Sources */,
 				FA826BFC2C98DE0CD6A361B1 /* AccountRepository.swift in Sources */,
+				42FD17AAF753A4DEA39ADD15 /* AccountRepositoryProtocol.swift in Sources */,
 				22E9C74C3B07E93C86D8ADA6 /* AccountsView.swift in Sources */,
 				F72F7B04D77F3C6B6DCFB66D /* AppConfigStoreProtocol.swift in Sources */,
 				670BEE221C07FDF27EBCF7A6 /* AppModel.swift in Sources */,
 				532507B57EE5C0C20D0F5EAD /* BackgroundSyncManager.swift in Sources */,
 				66B2ACA4E3D29411A0B19F7D /* Base32.swift in Sources */,
+				00B5007AE0070FF17865C3D9 /* BiometricAuthenticator.swift in Sources */,
 				A5A58C6C3F9C4E1FADEB461B /* ContentView.swift in Sources */,
 				AA2F98DCC7126A2C46C04528 /* CryptoStoreProtocol.swift in Sources */,
+				7260050553BBA8558C1350BE /* ErrorReporter.swift in Sources */,
 				B9950B9CC5ADA7EF60C37867 /* HOTPGenerator.swift in Sources */,
 				25E28FE08EFA4504CF7700B2 /* KeychainSecretStore.swift in Sources */,
 				64C4B3B699E1D22023CF4F12 /* LockScreenView.swift in Sources */,
@@ -449,6 +466,7 @@
 				8958E09487AAAA3F5A6A057F /* MainTabView.swift in Sources */,
 				C02463C0F7ED3C09A0EDEF96 /* Models.swift in Sources */,
 				0326345C9A5F080542ACD3B7 /* OTPGeneratorCore.swift in Sources */,
+				E0A3F02B8CF1678273F1F480 /* PrivacyShieldView.swift in Sources */,
 				69465A8765298C095E5F8999 /* SecretStoreProtocol.swift in Sources */,
 				4C1E7CB3BB23647B57B7E425 /* SettingsView.swift in Sources */,
 				ED922707B7647AB79768AA41 /* SteamGuardGenerator.swift in Sources */,
@@ -473,8 +491,10 @@
 				3727079AEE97EC1799FBCC86 /* APIClientTests.swift in Sources */,
 				8B0D11B46331CBEBD7986685 /* AccountRepositoryTests.swift in Sources */,
 				E67A709CA571C7F89EA80EBA /* AppModelStateMachineTests.swift in Sources */,
+				5F3FF786683C684785BF97ED /* AppModelTransportPolicyTests.swift in Sources */,
 				AE05CAD1C53B62B89CCA5E80 /* SecurityStoreTests.swift in Sources */,
 				045BB6ABE2B5880746F3C8EE /* TestSupport.swift in Sources */,
+				86604BEBF437EA513B267546 /* TransportURLValidatorTests.swift in Sources */,
 				AEEB6CDAF9ABF05AD1DC1058 /* TwoFAuthTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
