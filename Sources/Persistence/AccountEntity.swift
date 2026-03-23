@@ -4,10 +4,8 @@ import SwiftData
 @Model
 final class AccountEntity {
     @Attribute(.unique) var remoteID: Int
-    var groupID: Int?
     var service: String?
     var account: String
-    var icon: String?
     var otpType: String
     var digits: Int?
     var algorithm: String?
@@ -18,10 +16,8 @@ final class AccountEntity {
 
     init(
         remoteID: Int,
-        groupID: Int?,
         service: String?,
         account: String,
-        icon: String?,
         otpType: String,
         digits: Int?,
         algorithm: String?,
@@ -31,10 +27,8 @@ final class AccountEntity {
         updatedAt: Date
     ) {
         self.remoteID = remoteID
-        self.groupID = groupID
         self.service = service
         self.account = account
-        self.icon = icon
         self.otpType = otpType
         self.digits = digits
         self.algorithm = algorithm

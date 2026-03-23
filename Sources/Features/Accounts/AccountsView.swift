@@ -19,6 +19,8 @@ struct AccountsView: View {
                 .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color(uiColor: .systemGroupedBackground))
         .overlay {
             if filteredAccounts.isEmpty {
                 ContentUnavailableView(
@@ -70,6 +72,7 @@ struct AccountsView: View {
 }
 
 private struct AccountRowView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appModel: AppModel
     let account: AccountEntity
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -90,69 +93,55 @@ private struct AccountRowView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.service ?? String(localized: "accounts.unknown_service"))
-                    .font(.headline)
+                    .font(.title3.weight(.bold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
                 Text(account.account)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-
-                if isTimeBasedCode {
-                    Text(otpCode)
-                        .font(.title3.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(didCopyCode ? .green : .primary)
-                } else if otpType == "hotp" {
-                    HStack(spacing: 8) {
-                        Text(otpCode)
-                            .font(.title3.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(didCopyCode ? .green : .primary)
-
-                        Button("accounts.button.next") {
-                            otpCode = appModel.generateHOTP(for: account) ?? "------"
-                            triggerLightHaptic()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                } else {
-                    Text("accounts.otp.unsupported")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
             }
 
             Spacer(minLength: 8)
 
-            if isTimeBasedCode {
-                ZStack {
-                    Circle()
-                        .stroke(lineWidth: 5)
-                        .foregroundStyle(.quaternary)
+            HStack(spacing: 10) {
+                codeSection
 
-                    Circle()
-                        .trim(from: 0, to: progress)
-                        .stroke(
-                            ringColor,
-                            style: StrokeStyle(lineWidth: 5, lineCap: .round)
-                        )
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 0.25), value: progress)
+                if isTimeBasedCode {
+                    ZStack {
+                        Circle()
+                            .stroke(lineWidth: 5)
+                            .foregroundStyle(.quaternary)
 
-                    Text(
-                        String.localizedStringWithFormat(
-                            String(localized: "accounts.seconds_remaining"),
-                            secondsRemaining
+                        Circle()
+                            .trim(from: 0, to: progress)
+                            .stroke(
+                                ringColor,
+                                style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                            )
+                            .rotationEffect(.degrees(-90))
+                            .animation(.linear(duration: 0.25), value: progress)
+
+                        Text(
+                            String.localizedStringWithFormat(
+                                String(localized: "accounts.seconds_remaining"),
+                                secondsRemaining
+                            )
                         )
-                    )
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
+                        .font(.caption2.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 34, height: 34)
                 }
-                .frame(width: 34, height: 34)
             }
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.secondary.opacity(0.12))
+                .fill(rowBackgroundColor)
         )
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -169,6 +158,31 @@ private struct AccountRowView: View {
         .onReceive(timer) { tick in
             now = tick
             refreshCode()
+        }
+    }
+
+    @ViewBuilder
+    private var codeSection: some View {
+        if isTimeBasedCode {
+            Text(otpCode)
+                .font(.title2.monospaced().weight(.semibold))
+                .foregroundStyle(didCopyCode ? .green : .primary)
+        } else if otpType == "hotp" {
+            HStack(spacing: 8) {
+                Text(otpCode)
+                    .font(.title2.monospaced().weight(.semibold))
+                    .foregroundStyle(didCopyCode ? .green : .primary)
+
+                Button("accounts.button.next") {
+                    otpCode = appModel.generateHOTP(for: account) ?? "------"
+                    triggerLightHaptic()
+                }
+                .buttonStyle(.bordered)
+            }
+        } else {
+            Text("accounts.otp.unsupported")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -194,6 +208,12 @@ private struct AccountRowView: View {
             return .orange
         }
         return .green
+    }
+
+    private var rowBackgroundColor: Color {
+        colorScheme == .light
+            ? Color(uiColor: .systemBackground)
+            : Color(uiColor: .secondarySystemGroupedBackground)
     }
 
     private func refreshCode() {

@@ -161,10 +161,8 @@ final class AppModelStateMachineTests: XCTestCase {
 
         let account = AccountEntity(
             remoteID: 1,
-            groupID: nil,
             service: "GitHub",
             account: "ryan",
-            icon: nil,
             otpType: "totp",
             digits: 6,
             algorithm: "SHA1",

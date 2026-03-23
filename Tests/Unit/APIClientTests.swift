@@ -18,7 +18,7 @@ final class APIClientTests: XCTestCase {
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
 
             let json = """
-                [{"id":1,"group_id":2,"service":"GitHub","account":"ryan","icon":null,"otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30,"counter":null}]
+                [{"id":1,"service":"GitHub","account":"ryan","otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30,"counter":null}]
                 """
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (response, Data(json.utf8))

@@ -7,7 +7,7 @@ final class TwoFAuthTests: XCTestCase {
         let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
         let date = Date(timeIntervalSince1970: 59)
 
-        let otp = TOTPGenerator.generate(secret: secret, digits: 8, period: 30, at: date)
+        let otp = TOTPGenerator.generate(secret: secret, digits: .eight, period: 30, at: date)
 
         XCTAssertEqual(otp, "94287082")
     }
@@ -15,8 +15,8 @@ final class TwoFAuthTests: XCTestCase {
     func testHOTPVector() {
         let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
-        let otp0 = HOTPGenerator.generate(secret: secret, digits: 6, counter: 0)
-        let otp1 = HOTPGenerator.generate(secret: secret, digits: 6, counter: 1)
+        let otp0 = HOTPGenerator.generate(secret: secret, digits: .six, counter: 0)
+        let otp1 = HOTPGenerator.generate(secret: secret, digits: .six, counter: 1)
 
         XCTAssertEqual(otp0, "755224")
         XCTAssertEqual(otp1, "287082")
