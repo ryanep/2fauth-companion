@@ -4,6 +4,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var appModel: AppModel
     @State private var suppressShieldUntil: Date?
+    @State private var previousScenePhase: ScenePhase?
 
     var body: some View {
         ZStack {
@@ -26,6 +27,12 @@ struct ContentView: View {
                 PrivacyShieldView()
             }
         }
+        .onAppear {
+            previousScenePhase = scenePhase
+        }
+        .onChange(of: scenePhase) { oldPhase, _ in
+            previousScenePhase = oldPhase
+        }
         .onChange(of: appModel.sessionState) { _, newState in
             guard newState == .unlocked || newState == .degradedOffline else {
                 return
@@ -35,14 +42,23 @@ struct ContentView: View {
     }
 
     private var shouldShowPrivacyShield: Bool {
+        guard appModel.sessionState == .unlocked || appModel.sessionState == .degradedOffline else {
+            return false
+        }
+
         if let suppressShieldUntil, Date() < suppressShieldUntil {
             return false
         }
 
-        guard scenePhase != .active else {
+        switch scenePhase {
+        case .background:
+            return true
+        case .inactive:
+            return previousScenePhase == .active
+        case .active:
+            return false
+        @unknown default:
             return false
         }
-
-        return appModel.sessionState == .unlocked || appModel.sessionState == .degradedOffline
     }
 }

@@ -110,13 +110,11 @@ final class DefaultAccountRepository: AccountRepository {
     private func makeEntity(for remote: APIAccount, id: Int, updatedAt: Date) throws -> AccountEntity {
         let entity = AccountEntity(
             remoteID: id,
-            groupID: remote.groupID,
             service: remote.service,
             account: remote.account,
-            icon: remote.icon,
             otpType: remote.otpType,
-            digits: remote.digits,
-            algorithm: remote.algorithm,
+            digits: remote.digits?.rawValue,
+            algorithm: remote.algorithm?.rawValue,
             period: remote.period,
             counter: remote.counter,
             encryptedSecret: nil,
@@ -131,25 +129,21 @@ final class DefaultAccountRepository: AccountRepository {
     }
 
     private func hasMetadataChanges(entity: AccountEntity, remote: APIAccount) -> Bool {
-        entity.groupID != remote.groupID
-            || entity.service != remote.service
+        entity.service != remote.service
             || entity.account != remote.account
-            || entity.icon != remote.icon
             || entity.otpType != remote.otpType
-            || entity.digits != remote.digits
-            || entity.algorithm != remote.algorithm
+            || entity.digits != remote.digits?.rawValue
+            || entity.algorithm != remote.algorithm?.rawValue
             || entity.period != remote.period
             || entity.counter != remote.counter
     }
 
     private func applyMetadata(from remote: APIAccount, to entity: AccountEntity) {
-        entity.groupID = remote.groupID
         entity.service = remote.service
         entity.account = remote.account
-        entity.icon = remote.icon
         entity.otpType = remote.otpType
-        entity.digits = remote.digits
-        entity.algorithm = remote.algorithm
+        entity.digits = remote.digits?.rawValue
+        entity.algorithm = remote.algorithm?.rawValue
         entity.period = remote.period
         entity.counter = remote.counter
     }

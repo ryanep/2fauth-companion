@@ -306,9 +306,10 @@ extension AppModel {
 
         do {
             let secret = try repository.decryptSecret(encryptedSecret)
-            let digits = account.digits ?? 6
+            let digits = OTPDigits(rawValue: account.digits ?? OTPDigits.default.rawValue) ?? OTPDigits.default
+            let algorithm = OTPAlgorithm(value: account.algorithm ?? OTPAlgorithm.default.rawValue) ?? OTPAlgorithm.default
             let period = account.period ?? 30
-            return TOTPGenerator.generate(secret: secret, digits: digits, period: period, at: date)
+            return TOTPGenerator.generate(secret: secret, digits: digits, period: period, algorithm: algorithm, at: date)
         } catch {
             return nil
         }
@@ -335,9 +336,10 @@ extension AppModel {
 
         do {
             let secret = try repository.decryptSecret(encryptedSecret)
-            let digits = account.digits ?? 6
+            let digits = OTPDigits(rawValue: account.digits ?? OTPDigits.default.rawValue) ?? OTPDigits.default
+            let algorithm = OTPAlgorithm(value: account.algorithm ?? OTPAlgorithm.default.rawValue) ?? OTPAlgorithm.default
             let counter = UInt64(max(account.counter ?? 0, 0))
-            let code = HOTPGenerator.generate(secret: secret, digits: digits, counter: counter)
+            let code = HOTPGenerator.generate(secret: secret, digits: digits, counter: counter, algorithm: algorithm)
             account.counter = Int(counter + 1)
             try modelContext.save()
             return code
