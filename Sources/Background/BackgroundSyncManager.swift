@@ -4,6 +4,17 @@ import SwiftData
 #if os(iOS)
     import BackgroundTasks
 
+    protocol BackgroundTaskScheduling {
+        func register(
+            forTaskWithIdentifier identifier: String,
+            using queue: DispatchQueue?,
+            launchHandler: @escaping (BGTask) -> Void
+        ) -> Bool
+        func submit(_ taskRequest: BGTaskRequest) throws
+    }
+
+    extension BGTaskScheduler: BackgroundTaskScheduling {}
+
     @MainActor
     final class BackgroundSyncManager {
         static let taskIdentifier = "com.ryanep.2fauth.sync.refresh"
@@ -12,21 +23,27 @@ import SwiftData
         private var configStore: any AppConfigStore
         private let secretStore: any SecretStore
         private let repository: any AccountRepository
+        private let taskScheduler: any BackgroundTaskScheduling
+        private let report: (String, [String: String]) -> Void
 
         init(
             modelContainer: ModelContainer,
             configStore: any AppConfigStore,
             secretStore: any SecretStore,
-            repository: any AccountRepository
+            repository: any AccountRepository,
+            taskScheduler: any BackgroundTaskScheduling = BGTaskScheduler.shared,
+            report: @escaping (String, [String: String]) -> Void = ErrorReporter.report
         ) {
             self.modelContainer = modelContainer
             self.configStore = configStore
             self.secretStore = secretStore
             self.repository = repository
+            self.taskScheduler = taskScheduler
+            self.report = report
         }
 
         func register() {
-            BGTaskScheduler.shared.register(
+            let didRegister = taskScheduler.register(
                 forTaskWithIdentifier: Self.taskIdentifier,
                 using: nil
             ) { [weak self] task in
@@ -36,6 +53,10 @@ import SwiftData
                 }
                 self.handle(task: refreshTask)
             }
+
+            if !didRegister {
+                report("background.register_failed", ["taskIdentifier": Self.taskIdentifier])
+            }
         }
 
         func scheduleAppRefresh() {
@@ -43,9 +64,15 @@ import SwiftData
             let minutes = UserDefaultsAppConfigStore.backgroundSyncIntervalMinutes
             request.earliestBeginDate = Date(timeIntervalSinceNow: TimeInterval(minutes * 60))
             do {
-                try BGTaskScheduler.shared.submit(request)
+                try taskScheduler.submit(request)
             } catch {
-                ErrorReporter.report("background.schedule_submit_failed")
+                report(
+                    "background.schedule_submit_failed",
+                    [
+                        "taskIdentifier": Self.taskIdentifier,
+                        "error": error.localizedDescription,
+                    ]
+                )
                 return
             }
         }

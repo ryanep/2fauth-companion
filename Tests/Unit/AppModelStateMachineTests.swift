@@ -1,4 +1,5 @@
 import Foundation
+import BackgroundTasks
 import SwiftData
 import XCTest
 
@@ -347,6 +348,104 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
             repository: repository
         )
         return (manager, configStore)
+    }
+}
+
+@MainActor
+final class BackgroundSyncManagerDiagnosticsTests: XCTestCase {
+    private struct ReportEvent: Equatable {
+        let event: String
+        let metadata: [String: String]
+    }
+
+    private final class MockBackgroundTaskScheduler: BackgroundTaskScheduling {
+        var registerResult = true
+        var submitError: Error?
+
+        func register(
+            forTaskWithIdentifier identifier: String,
+            using queue: DispatchQueue?,
+            launchHandler: @escaping (BGTask) -> Void
+        ) -> Bool {
+            registerResult
+        }
+
+        func submit(_ taskRequest: BGTaskRequest) throws {
+            if let submitError {
+                throw submitError
+            }
+        }
+    }
+
+    nonisolated(unsafe) private let secretStore = KeychainSecretStore()
+
+    override func setUp() {
+        super.setUp()
+        _ = secretStore.deleteAPIKey()
+        _ = secretStore.deleteEncryptionKey()
+    }
+
+    override func tearDown() {
+        _ = secretStore.deleteAPIKey()
+        _ = secretStore.deleteEncryptionKey()
+        super.tearDown()
+    }
+
+    func testRegisterReportsFailureWhenSchedulerRejectsIdentifier() async throws {
+        let scheduler = MockBackgroundTaskScheduler()
+        scheduler.registerResult = false
+        var reported: [ReportEvent] = []
+        let manager = try makeSUT(scheduler: scheduler) { event, metadata in
+            reported.append(ReportEvent(event: event, metadata: metadata))
+        }
+
+        manager.register()
+
+        XCTAssertEqual(reported.count, 1)
+        XCTAssertEqual(
+            reported.first,
+            ReportEvent(
+                event: "background.register_failed",
+                metadata: ["taskIdentifier": BackgroundSyncManager.taskIdentifier]
+            )
+        )
+    }
+
+    func testScheduleReportsSubmitFailureWithIdentifierAndError() async throws {
+        let scheduler = MockBackgroundTaskScheduler()
+        scheduler.submitError = NSError(domain: "test", code: 99, userInfo: [NSLocalizedDescriptionKey: "submit failed"])
+        var reported: [ReportEvent] = []
+        let manager = try makeSUT(scheduler: scheduler) { event, metadata in
+            reported.append(ReportEvent(event: event, metadata: metadata))
+        }
+
+        manager.scheduleAppRefresh()
+
+        XCTAssertEqual(reported.count, 1)
+        XCTAssertEqual(reported.first?.event, "background.schedule_submit_failed")
+        XCTAssertEqual(reported.first?.metadata["taskIdentifier"], BackgroundSyncManager.taskIdentifier)
+        XCTAssertEqual(reported.first?.metadata["error"], "submit failed")
+    }
+
+    private func makeSUT(
+        scheduler: any BackgroundTaskScheduling,
+        report: @escaping (String, [String: String]) -> Void
+    ) throws -> BackgroundSyncManager {
+        let container = try makeInMemoryModelContainer()
+        let configStore = makeTestConfigStore(testName: #function)
+        let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
+        let repository = DefaultAccountRepository(
+            apiClient: apiClient,
+            cryptoStore: AESGCMCryptoStore(secretStore: secretStore)
+        )
+        return BackgroundSyncManager(
+            modelContainer: container,
+            configStore: configStore,
+            secretStore: secretStore,
+            repository: repository,
+            taskScheduler: scheduler,
+            report: report
+        )
     }
 }
 

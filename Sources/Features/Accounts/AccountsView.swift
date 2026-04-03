@@ -149,6 +149,7 @@ private struct AccountRowView: View {
                 .animation(.easeInOut(duration: 0.2), value: didCopyCode)
         }
         .contentShape(Rectangle())
+        .accessibilityIdentifier("account.row.\(account.remoteID)")
         .onTapGesture {
             handleCopyCodeTap()
         }
@@ -167,22 +168,26 @@ private struct AccountRowView: View {
             Text(otpCode)
                 .font(.title2.monospaced().weight(.semibold))
                 .foregroundStyle(didCopyCode ? .green : .primary)
+                .accessibilityIdentifier("account.code.\(otpType).\(account.remoteID)")
         } else if otpType == "hotp" {
             HStack(spacing: 8) {
                 Text(otpCode)
                     .font(.title2.monospaced().weight(.semibold))
                     .foregroundStyle(didCopyCode ? .green : .primary)
+                    .accessibilityIdentifier("account.code.hotp.\(account.remoteID)")
 
                 Button("accounts.button.next") {
                     otpCode = appModel.generateHOTP(for: account) ?? "------"
                     triggerLightHaptic()
                 }
                 .buttonStyle(.bordered)
+                .accessibilityIdentifier("account.hotp.next.\(account.remoteID)")
             }
         } else {
             Text("accounts.otp.unsupported")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier("account.code.unsupported.\(account.remoteID)")
         }
     }
 

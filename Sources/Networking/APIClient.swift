@@ -9,6 +9,19 @@ final class URLSessionAPIClient: APIClient {
     }
 
     func fetchAccounts(baseURL: URL, apiKey: String, includeSecrets: Bool) async throws -> [APIAccount] {
+        #if DEBUG
+            let fixtureMode = ProcessInfo.processInfo.environment["UI_TEST_LOGIN_FIXTURE"]
+            if fixtureMode == "all-variants" {
+                let body = "[{\"id\":101,\"service\":\"TOTP 6 SHA1\",\"account\":\"totp-6\",\"otp_type\":\"totp\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"digits\":6,\"algorithm\":\"SHA1\",\"period\":30,\"counter\":null},{\"id\":102,\"service\":\"TOTP 7 SHA256\",\"account\":\"totp-7\",\"otp_type\":\"totp\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"digits\":7,\"algorithm\":\"SHA256\",\"period\":30,\"counter\":null},{\"id\":103,\"service\":\"TOTP 8 SHA512\",\"account\":\"totp-8\",\"otp_type\":\"totp\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"digits\":8,\"algorithm\":\"SHA512\",\"period\":30,\"counter\":null},{\"id\":104,\"service\":\"TOTP 9 MD5\",\"account\":\"totp-9\",\"otp_type\":\"totp\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"digits\":9,\"algorithm\":\"MD5\",\"period\":30,\"counter\":null},{\"id\":105,\"service\":\"TOTP 10 SHA1\",\"account\":\"totp-10\",\"otp_type\":\"totp\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"digits\":10,\"algorithm\":\"SHA1\",\"period\":30,\"counter\":null},{\"id\":106,\"service\":\"Steam Fixture\",\"account\":\"steam-user\",\"otp_type\":\"steamtotp\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"digits\":6,\"algorithm\":\"SHA1\",\"period\":30,\"counter\":null},{\"id\":107,\"service\":\"HOTP Fixture\",\"account\":\"hotp-user\",\"otp_type\":\"hotp\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"digits\":6,\"algorithm\":\"SHA1\",\"period\":30,\"counter\":0}]"
+                return try JSONDecoder().decode([APIAccount].self, from: Data(body.utf8))
+            }
+
+            if fixtureMode == "1" {
+                let body = "[{\"id\":1,\"service\":\"GitHub\",\"account\":\"ui-test\",\"otp_type\":\"totp\",\"secret\":\"JBSWY3DPEHPK3PXP\",\"digits\":6,\"algorithm\":\"SHA1\",\"period\":30,\"counter\":null}]"
+                return try JSONDecoder().decode([APIAccount].self, from: Data(body.utf8))
+            }
+        #endif
+
         guard
             let url = endpointURL(
                 baseURL: baseURL, path: "/api/v1/twofaccounts",
