@@ -58,6 +58,12 @@ final class AppModel: ObservableObject {
 
     func bootstrap() async {
         #if DEBUG
+            if ProcessInfo.processInfo.environment["UI_TEST_FORCE_LOGGED_OUT"] == "1" {
+                unlockedState = .unlocked
+                sessionState = .loggedOut
+                return
+            }
+
             if ProcessInfo.processInfo.environment["UI_TEST_START_UNLOCKED"] == "1" {
                 unlockedState = .unlocked
                 sessionState = .unlocked
