@@ -8,7 +8,7 @@ import SwiftUI
 
 struct AccountsView: View {
     @EnvironmentObject private var appModel: AppModel
-    @Query(sort: \AccountEntity.account) private var accounts: [AccountEntity]
+    @Query private var accounts: [AccountEntity]
     @State private var searchText: String = ""
 
     var body: some View {
@@ -52,22 +52,39 @@ struct AccountsView: View {
     private var filteredAccounts: [AccountEntity] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
-            return accounts
+            return sortAccountsForDisplay(accounts)
         }
 
-        return accounts.filter { account in
+        return sortAccountsForDisplay(accounts.filter { account in
             let accountName = account.account.localizedLowercase
             let serviceName = (account.service ?? "").localizedLowercase
             let otpType = account.otpType.localizedLowercase
             let term = query.localizedLowercase
             return accountName.contains(term) || serviceName.contains(term) || otpType.contains(term)
-        }
+        })
     }
 
     private var emptyStateMessage: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? String(localized: "accounts.empty.message.initial")
             : String(localized: "accounts.empty.message.search")
+    }
+}
+
+func sortAccountsForDisplay(_ accounts: [AccountEntity]) -> [AccountEntity] {
+    accounts.sorted { lhs, rhs in
+        let lhsService = (lhs.service ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let rhsService = (rhs.service ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let lhsTitle = lhsService.isEmpty ? String(localized: "accounts.unknown_service") : lhsService
+        let rhsTitle = rhsService.isEmpty ? String(localized: "accounts.unknown_service") : rhsService
+
+        let lhsNormalizedTitle = lhsTitle.localizedLowercase
+        let rhsNormalizedTitle = rhsTitle.localizedLowercase
+        if lhsNormalizedTitle != rhsNormalizedTitle {
+            return lhsNormalizedTitle < rhsNormalizedTitle
+        }
+
+        return lhs.account.localizedLowercase < rhs.account.localizedLowercase
     }
 }
 
