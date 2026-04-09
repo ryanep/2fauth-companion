@@ -396,9 +396,6 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
-					3F2FADDBDD8C130842955361 = {
-						DevelopmentTeam = 64C39764NA;
-					};
 					82CA7F700F1D8634FAAC615C = {
 						TestTargetID = 3F2FADDBDD8C130842955361;
 					};
