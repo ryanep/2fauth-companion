@@ -36,6 +36,9 @@
 "settings.logout.alert.message" = "You will need your API key to sign back in.";
 "settings.last_sync.never" = "Never";
 "settings.server_url.not_set" = "Not set";
+"settings.section.about" = "About";
+"settings.app_version.label" = "App Version";
+"settings.app_version.unknown" = "Unknown";
 
 "lock.title" = "Unlock 2FAuth";
 "lock.button.biometric" = "Unlock with Biometrics";
