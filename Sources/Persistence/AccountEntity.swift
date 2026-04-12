@@ -10,7 +10,6 @@ final class AccountEntity {
     var digits: Int?
     var algorithm: String?
     var period: Int?
-    var counter: Int?
     var encryptedSecret: Data?
     var updatedAt: Date
 
@@ -22,7 +21,6 @@ final class AccountEntity {
         digits: Int?,
         algorithm: String?,
         period: Int?,
-        counter: Int?,
         encryptedSecret: Data?,
         updatedAt: Date
     ) {
@@ -33,7 +31,6 @@ final class AccountEntity {
         self.digits = digits
         self.algorithm = algorithm
         self.period = period
-        self.counter = counter
         self.encryptedSecret = encryptedSecret
         self.updatedAt = updatedAt
     }

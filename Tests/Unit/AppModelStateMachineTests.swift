@@ -168,7 +168,6 @@ final class AppModelStateMachineTests: XCTestCase {
             digits: 6,
             algorithm: "SHA1",
             period: 30,
-            counter: nil,
             encryptedSecret: nil,
             updatedAt: Date()
         )

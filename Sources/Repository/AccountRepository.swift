@@ -32,7 +32,8 @@ final class DefaultAccountRepository: AccountRepository {
                 apiKey: apiKey,
                 includeSecrets: includeSecrets
             )
-            try upsert(remoteAccounts: remoteAccounts, context: context)
+            let filteredAccounts = remoteAccounts.filter { $0.otpType.lowercased() != "hotp" }
+            try upsert(remoteAccounts: filteredAccounts, context: context)
             return .success
         } catch APIError.unauthorized {
             return .unauthorized
@@ -116,7 +117,6 @@ final class DefaultAccountRepository: AccountRepository {
             digits: remote.digits?.rawValue,
             algorithm: remote.algorithm?.rawValue,
             period: remote.period,
-            counter: remote.counter,
             encryptedSecret: nil,
             updatedAt: updatedAt
         )
@@ -135,7 +135,6 @@ final class DefaultAccountRepository: AccountRepository {
             || entity.digits != remote.digits?.rawValue
             || entity.algorithm != remote.algorithm?.rawValue
             || entity.period != remote.period
-            || entity.counter != remote.counter
     }
 
     private func applyMetadata(from remote: APIAccount, to entity: AccountEntity) {
@@ -145,7 +144,6 @@ final class DefaultAccountRepository: AccountRepository {
         entity.digits = remote.digits?.rawValue
         entity.algorithm = remote.algorithm?.rawValue
         entity.period = remote.period
-        entity.counter = remote.counter
     }
 
     private func updateSecretIfNeeded(remoteSecret: String?, entity: AccountEntity) throws -> Bool {

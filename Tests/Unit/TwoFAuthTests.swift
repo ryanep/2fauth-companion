@@ -12,16 +12,6 @@ final class TwoFAuthTests: XCTestCase {
         XCTAssertEqual(otp, "94287082")
     }
 
-    func testHOTPVector() {
-        let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
-
-        let otp0 = HOTPGenerator.generate(secret: secret, digits: .six, counter: 0)
-        let otp1 = HOTPGenerator.generate(secret: secret, digits: .six, counter: 1)
-
-        XCTAssertEqual(otp0, "755224")
-        XCTAssertEqual(otp1, "287082")
-    }
-
     func testSteamGuardFormat() {
         let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
         let code = SteamGuardGenerator.generate(secret: secret, counter: 1)

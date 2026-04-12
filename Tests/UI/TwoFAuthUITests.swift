@@ -61,7 +61,6 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["TOTP 9 MD5"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["TOTP 10 SHA1"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Steam Fixture"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["HOTP Fixture"].waitForExistence(timeout: 5))
 
         XCTAssertTrue(waitUntil(timeout: 5) {
             !allStaticTextMatches(in: app, pattern: "^[0-9]{6}$").isEmpty
@@ -80,15 +79,6 @@ final class TwoFAuthUITests: XCTestCase {
         })
         XCTAssertTrue(waitUntil(timeout: 5) {
             !allStaticTextMatches(in: app, pattern: "^[23456789BCDFGHJKMNPQRTVWXY]{5}$").isEmpty
-        })
-
-        let before = allStaticTextMatches(in: app, pattern: "^[0-9]{6}$")
-        let nextButton = hotpNextButton(in: app)
-        XCTAssertTrue(nextButton.waitForExistence(timeout: 2))
-        nextButton.tap()
-
-        XCTAssertTrue(waitUntil(timeout: 2) {
-            allStaticTextMatches(in: app, pattern: "^[0-9]{6}$") != before
         })
     }
 
@@ -135,14 +125,6 @@ final class TwoFAuthUITests: XCTestCase {
                 return label.range(of: pattern, options: .regularExpression) != nil ? label : nil
             }
         )
-    }
-
-    private func hotpNextButton(in app: XCUIApplication) -> XCUIElement {
-        let identified = app.buttons["account.hotp.next.107"]
-        if identified.exists {
-            return identified
-        }
-        return app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "next")).firstMatch
     }
 
     private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {

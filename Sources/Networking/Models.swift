@@ -9,7 +9,6 @@ struct APIAccount: Decodable {
     let digits: OTPDigits?
     let algorithm: OTPAlgorithm?
     let period: Int?
-    let counter: Int?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -20,7 +19,6 @@ struct APIAccount: Decodable {
         case digits
         case algorithm
         case period
-        case counter
     }
 
     init(from decoder: any Decoder) throws {
@@ -43,6 +41,5 @@ struct APIAccount: Decodable {
             algorithm = nil
         }
         period = try container.decodeIfPresent(Int.self, forKey: .period)
-        counter = try container.decodeIfPresent(Int.self, forKey: .counter)
     }
 }
