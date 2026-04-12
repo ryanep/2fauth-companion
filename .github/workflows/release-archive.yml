@@ -9,7 +9,9 @@ on:
 jobs:
   archive:
     name: Archive Release Build
-    runs-on: macos-latest
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
 
     steps:
       - name: Checkout
@@ -44,7 +46,7 @@ jobs:
           xcodebuild test \
             -project "2FAuth.xcodeproj" \
             -scheme "2FAuth" \
-            -destination "platform=iOS Simulator,name=iPhone 16" \
+            -destination "platform=iOS Simulator,name=iPhone 16,OS=18.5" \
             -only-testing:2FAuthTests \
             | tee "$RUNNER_TEMP/xcodebuild-test.log"
 

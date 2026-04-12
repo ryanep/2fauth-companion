@@ -57,6 +57,53 @@ final class TwoFAuthTests: XCTestCase {
         XCTAssertEqual(store.autoLockTimeoutSeconds, UserDefaultsAppConfigStore.defaultAutoLockTimeoutSeconds)
     }
 
+    func testDisplayVersionReturnsVersionAndBuildWhenBothValuesPresent() {
+        let value = AppVersionFormatter.displayVersion(
+            shortVersion: "1.2.3",
+            buildVersion: "45"
+        )
+
+        XCTAssertEqual(value, "1.2.3 (45)")
+    }
+
+    func testDisplayVersionReturnsVersionAndBuildWhenBuildPresent() {
+        let value = AppVersionFormatter.displayVersion(
+            shortVersion: "1.2.3",
+            buildVersion: "1.2.3"
+        )
+
+        XCTAssertEqual(value, "1.2.3 (1.2.3)")
+    }
+
+    func testDisplayVersionReturnsUnknownWhenVersionMissing() {
+        let value = AppVersionFormatter.displayVersion(
+            shortVersion: nil,
+            buildVersion: "45"
+        )
+
+        XCTAssertEqual(value, String(localized: "settings.app_version.unknown"))
+    }
+
+    func testInfoPlistUsesBuildSettingsForVersionValues() throws {
+        let testsDirectoryURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+        let repositoryRootURL = testsDirectoryURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let infoPlistURL = repositoryRootURL
+            .appendingPathComponent("Resources")
+            .appendingPathComponent("Info.plist")
+
+        let data = try Data(contentsOf: infoPlistURL)
+        let plistObject = try PropertyListSerialization.propertyList(from: data, format: nil)
+        guard let dictionary = plistObject as? [String: Any] else {
+            return XCTFail("Info.plist did not decode as dictionary")
+        }
+
+        XCTAssertEqual(dictionary["CFBundleShortVersionString"] as? String, "$(MARKETING_VERSION)")
+        XCTAssertEqual(dictionary["CFBundleVersion"] as? String, "$(CURRENT_PROJECT_VERSION)")
+    }
+
     private func makeConfigStore(testName: String) -> UserDefaultsAppConfigStore {
         let suiteName = "TwoFAuthTests.\(testName)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

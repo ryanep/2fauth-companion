@@ -45,8 +45,17 @@ struct SettingsView: View {
         return value.isEmpty ? String(localized: "settings.server_url.not_set") : value
     }
 
+    private var appVersionText: String {
+        AppVersionFormatter.displayVersion()
+    }
+
     var body: some View {
         Form {
+            Section("settings.section.about") {
+                LabeledContent("settings.app_version.label", value: appVersionText)
+                    .accessibilityIdentifier("settings.app_version")
+            }
+
             Section("settings.section.sync") {
                 LabeledContent("settings.server_url.label", value: serverURLText)
                 LabeledContent("settings.last_sync.label", value: lastSuccessfulSyncText)
