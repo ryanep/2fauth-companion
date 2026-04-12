@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LocalAuthentication
 import OSLog
@@ -21,6 +22,9 @@ final class AppModel: ObservableObject {
     @Published var isSyncing: Bool = false
     @Published var autoLockTimeoutSeconds: Int
     @Published var lastSuccessfulSyncAt: Date?
+    @Published var currentTime: Date = .init()
+
+    private var timerCancellable: AnyCancellable?
 
     private let modelContext: ModelContext
     private var configStore: any AppConfigStore
@@ -121,6 +125,7 @@ final class AppModel: ObservableObject {
                 unlockedState = .unlocked
                 sessionState = .unlocked
                 scheduleBackgroundRefresh()
+                startTimer()
             } catch {
                 ErrorReporter.report("login.secure_store_failed")
                 loginError = String(localized: "login.error.secure_store_failed")
@@ -156,6 +161,7 @@ final class AppModel: ObservableObject {
             if authenticated {
                 sessionState = unlockedState
                 syncMessage = nil
+                startTimer()
             }
         } catch {
             if let authError = error as? LAError,
@@ -196,6 +202,7 @@ final class AppModel: ObservableObject {
                 sessionState = .unlocked
             }
             syncMessage = nil
+            startTimer()
         case .unauthorized:
             ErrorReporter.report("sync.unauthorized")
             await enforceReloginWipe()
@@ -229,6 +236,7 @@ final class AppModel: ObservableObject {
         switch phase {
         case .background:
             backgroundedAt = Date()
+            stopTimer()
         case .active:
             guard let backgroundedAt else { return }
             let elapsed = Date().timeIntervalSince(backgroundedAt)
@@ -236,9 +244,23 @@ final class AppModel: ObservableObject {
             if shouldAutoLock(after: elapsed) {
                 sessionState = .locked
             }
+            startTimer()
         default:
             break
         }
+    }
+
+    func startTimer() {
+        timerCancellable = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] date in
+                self?.currentTime = date
+            }
+    }
+
+    func stopTimer() {
+        timerCancellable?.cancel()
+        timerCancellable = nil
     }
 
     private func shouldAutoLock(after elapsed: TimeInterval) -> Bool {
@@ -330,25 +352,6 @@ extension AppModel {
             let secret = try repository.decryptSecret(encryptedSecret)
             let period = account.period ?? 30
             return SteamGuardGenerator.generate(secret: secret, period: period, at: date)
-        } catch {
-            return nil
-        }
-    }
-
-    func generateHOTP(for account: AccountEntity) -> String? {
-        guard normalizedOTPType(account.otpType) == "hotp", let encryptedSecret = account.encryptedSecret else {
-            return nil
-        }
-
-        do {
-            let secret = try repository.decryptSecret(encryptedSecret)
-            let digits = OTPDigits(rawValue: account.digits ?? OTPDigits.default.rawValue) ?? OTPDigits.default
-            let algorithm = OTPAlgorithm(value: account.algorithm ?? OTPAlgorithm.default.rawValue) ?? OTPAlgorithm.default
-            let counter = UInt64(max(account.counter ?? 0, 0))
-            let code = HOTPGenerator.generate(secret: secret, digits: digits, counter: counter, algorithm: algorithm)
-            account.counter = Int(counter + 1)
-            try modelContext.save()
-            return code
         } catch {
             return nil
         }

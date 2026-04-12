@@ -92,7 +92,6 @@ private struct AccountRowView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appModel: AppModel
     let account: AccountEntity
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     @State private var otpCode: String = "------"
     @State private var now: Date = .init()
@@ -173,7 +172,7 @@ private struct AccountRowView: View {
         .onAppear {
             refreshCode()
         }
-        .onReceive(timer) { tick in
+        .onReceive(appModel.$currentTime) { tick in
             now = tick
             refreshCode()
         }
@@ -186,20 +185,6 @@ private struct AccountRowView: View {
                 .font(.title2.monospaced().weight(.semibold))
                 .foregroundStyle(didCopyCode ? .green : .primary)
                 .accessibilityIdentifier("account.code.\(otpType).\(account.remoteID)")
-        } else if otpType == "hotp" {
-            HStack(spacing: 8) {
-                Text(otpCode)
-                    .font(.title2.monospaced().weight(.semibold))
-                    .foregroundStyle(didCopyCode ? .green : .primary)
-                    .accessibilityIdentifier("account.code.hotp.\(account.remoteID)")
-
-                Button("accounts.button.next") {
-                    otpCode = appModel.generateHOTP(for: account) ?? "------"
-                    triggerLightHaptic()
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("account.hotp.next.\(account.remoteID)")
-            }
         } else {
             Text("accounts.otp.unsupported")
                 .font(.caption)
