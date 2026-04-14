@@ -151,6 +151,29 @@ final class AppModelStateMachineTests: XCTestCase {
         XCTAssertNil(secretStore.loadEncryptionKey())
     }
 
+    func testSyncNowUnauthorizedClearsLastSyncAndKeepsConfiguredBaseURL() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+        setup.configStore.lastSuccessfulSyncAt = Date(timeIntervalSince1970: 12345)
+        setup.appModel.lastSuccessfulSyncAt = setup.configStore.lastSuccessfulSyncAt
+        setup.appModel.baseURLInput = "https://example.com"
+        try secretStore.saveAPIKey("api-key")
+        setup.appModel.sessionState = .unlocked
+
+        await setup.appModel.syncNow()
+
+        XCTAssertEqual(setup.appModel.sessionState, .reloginRequired)
+        XCTAssertNil(setup.appModel.lastSuccessfulSyncAt)
+        XCTAssertNil(setup.configStore.lastSuccessfulSyncAt)
+        XCTAssertEqual(setup.appModel.baseURLInput, "https://example.com")
+        XCTAssertEqual(setup.configStore.baseURLString, "https://example.com")
+    }
+
     func testLogoutResetsSessionAndClearsStoredData() async throws {
         let setup = try makeSUT(testName: #function)
         setup.configStore.baseURLString = "https://example.com"

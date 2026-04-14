@@ -62,6 +62,17 @@ struct LoginView: View {
             }
             .navigationTitle("login.title")
             .accessibilityIdentifier("login.screen")
+            .onAppear {
+                #if DEBUG
+                    if let baseURL = ProcessInfo.processInfo.environment["UI_TEST_BASE_URL"], !baseURL.isEmpty {
+                        appModel.baseURLInput = baseURL
+                    }
+
+                    if let token = ProcessInfo.processInfo.environment["UI_TEST_API_TOKEN"], !token.isEmpty {
+                        apiKey = token
+                    }
+                #endif
+            }
         }
     }
 }

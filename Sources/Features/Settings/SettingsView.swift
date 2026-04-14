@@ -52,13 +52,12 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("settings.section.about") {
-                LabeledContent("settings.app_version.label", value: appVersionText)
-                    .accessibilityIdentifier("settings.app_version")
+                settingsRow(label: String(localized: "settings.app_version.label"), value: appVersionText, identifier: "settings.app_version")
             }
 
             Section("settings.section.sync") {
-                LabeledContent("settings.server_url.label", value: serverURLText)
-                LabeledContent("settings.last_sync.label", value: lastSuccessfulSyncText)
+                settingsRow(label: String(localized: "settings.server_url.label"), value: serverURLText, identifier: "settings.server_url")
+                settingsRow(label: String(localized: "settings.last_sync.label"), value: lastSuccessfulSyncText, identifier: "settings.last_sync")
             }
 
             Section("settings.section.session") {
@@ -68,6 +67,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.auto_lock")
 
                 Button("settings.logout.button", role: .destructive) {
                     showingLogoutConfirmation = true
@@ -88,5 +88,14 @@ struct SettingsView: View {
             Text("settings.logout.alert.message")
         }
         .accessibilityIdentifier("settings.screen")
+    }
+
+    private func settingsRow(label: String, value: String, identifier: String) -> some View {
+        LabeledContent {
+            Text(value)
+                .accessibilityIdentifier(identifier)
+        } label: {
+            Text(label)
+        }
     }
 }

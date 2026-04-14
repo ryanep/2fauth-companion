@@ -68,6 +68,12 @@ final class AppModel: ObservableObject {
                 return
             }
 
+            if ProcessInfo.processInfo.environment["UI_TEST_START_RELOGIN_REQUIRED"] == "1" {
+                unlockedState = .unlocked
+                sessionState = .reloginRequired
+                return
+            }
+
             if ProcessInfo.processInfo.environment["UI_TEST_START_UNLOCKED"] == "1" {
                 unlockedState = .unlocked
                 sessionState = .unlocked

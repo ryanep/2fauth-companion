@@ -20,6 +20,8 @@ xcuserdata/
 # Local git worktrees
 .worktrees/
 
+Tests/UI/Generated/
+
 # Fastlane
 fastlane/report.xml
 fastlane/Preview.html

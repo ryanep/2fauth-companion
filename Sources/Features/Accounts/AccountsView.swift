@@ -105,6 +105,13 @@ private struct AccountRowView: View {
         otpType == "totp" || otpType == "steamtotp"
     }
 
+    private var serviceAccessibilityKey: String {
+        let value = (account.service ?? String(localized: "accounts.unknown_service")).lowercased()
+        let parts = value.split { !$0.isLetter && !$0.isNumber }
+        let joined = parts.map(String.init).joined(separator: "-")
+        return joined.isEmpty ? "unknown-service" : joined
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
@@ -164,6 +171,7 @@ private struct AccountRowView: View {
                 .stroke(Color.green.opacity(didCopyCode ? 0.5 : 0), lineWidth: 1.5)
                 .animation(.easeInOut(duration: 0.2), value: didCopyCode)
         }
+        .accessibilityElement(children: .contain)
         .contentShape(Rectangle())
         .accessibilityIdentifier("account.row.\(account.remoteID)")
         .onTapGesture {
@@ -184,7 +192,7 @@ private struct AccountRowView: View {
             Text(otpCode)
                 .font(.title2.monospaced().weight(.semibold))
                 .foregroundStyle(didCopyCode ? .green : .primary)
-                .accessibilityIdentifier("account.code.\(otpType).\(account.remoteID)")
+                .accessibilityIdentifier("account.code.service.\(serviceAccessibilityKey)")
         } else {
             Text("accounts.otp.unsupported")
                 .font(.caption)

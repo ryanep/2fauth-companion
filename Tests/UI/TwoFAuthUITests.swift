@@ -2,6 +2,30 @@ import XCTest
 
 @MainActor
 final class TwoFAuthUITests: XCTestCase {
+    private struct LiveConfig: Decodable {
+        let baseURL: String
+        let apiToken: String
+    }
+
+    private var liveConfig: LiveConfig {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+        let configURL = sourceURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("Generated/live-config.json")
+
+        guard let data = try? Data(contentsOf: configURL) else {
+            XCTFail("Missing live UI test config at \(configURL.path). Run via make -f makefile ui-test-live ...")
+            return LiveConfig(baseURL: "", apiToken: "")
+        }
+
+        do {
+            return try JSONDecoder().decode(LiveConfig.self, from: data)
+        } catch {
+            XCTFail("Invalid live UI test config at \(configURL.path): \(error.localizedDescription)")
+            return LiveConfig(baseURL: "", apiToken: "")
+        }
+    }
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -13,47 +37,14 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 2))
     }
 
-    func testLogoutImmediatelyShowsLoginWhileWipeInProgress() throws {
+    func testLiveBackendShowsSeededAccountsAndCodes() {
         let app = XCUIApplication()
         app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
-        app.launchEnvironment["UI_TEST_LOGIN_FIXTURE"] = "1"
-        app.launchEnvironment["UI_TEST_WIPE_DELAY_MS"] = "2500"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
         app.launch()
 
-        login(app: app, baseURL: "https://example.com", apiKey: "ui-test-key")
-
-        if !app.buttons["settings.logout"].exists {
-            if app.buttons["tab.settings"].waitForExistence(timeout: 2) {
-                app.buttons["tab.settings"].tap()
-            } else {
-                let tabBar = app.tabBars.firstMatch
-                XCTAssertTrue(tabBar.waitForExistence(timeout: 3))
-                let settingsTab = tabBar.buttons.element(boundBy: 1)
-                XCTAssertTrue(settingsTab.waitForExistence(timeout: 2))
-                settingsTab.tap()
-            }
-        }
-
-        let logoutButton = app.buttons["settings.logout"]
-        XCTAssertTrue(logoutButton.waitForExistence(timeout: 2))
-        logoutButton.tap()
-
-        let logoutAlert = app.alerts.firstMatch
-        XCTAssertTrue(logoutAlert.waitForExistence(timeout: 2))
-        let confirmLogoutButton = logoutAlert.buttons.matching(identifier: "settings.logout.confirm").firstMatch
-        XCTAssertTrue(confirmLogoutButton.waitForExistence(timeout: 2))
-        confirmLogoutButton.tap()
-
-        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 3))
-    }
-
-    func testAllCodeVariantsGenerateExpectedFormats() {
-        let app = XCUIApplication()
-        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
-        app.launchEnvironment["UI_TEST_LOGIN_FIXTURE"] = "all-variants"
-        app.launch()
-
-        login(app: app, baseURL: "https://example.com", apiKey: "ui-test-key")
+        login(app: app)
 
         XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["TOTP 7 SHA256"].waitForExistence(timeout: 5))
@@ -62,38 +53,105 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["TOTP 10 SHA1"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Steam Fixture"].waitForExistence(timeout: 5))
 
-        XCTAssertTrue(waitUntil(timeout: 5) {
-            !allStaticTextMatches(in: app, pattern: "^[0-9]{6}$").isEmpty
-        })
-        XCTAssertTrue(waitUntil(timeout: 5) {
-            !allStaticTextMatches(in: app, pattern: "^[0-9]{7}$").isEmpty
-        })
-        XCTAssertTrue(waitUntil(timeout: 5) {
-            !allStaticTextMatches(in: app, pattern: "^[0-9]{8}$").isEmpty
-        })
-        XCTAssertTrue(waitUntil(timeout: 5) {
-            !allStaticTextMatches(in: app, pattern: "^[0-9]{9}$").isEmpty
-        })
-        XCTAssertTrue(waitUntil(timeout: 5) {
-            !allStaticTextMatches(in: app, pattern: "^[0-9]{10}$").isEmpty
-        })
-        XCTAssertTrue(waitUntil(timeout: 5) {
-            !allStaticTextMatches(in: app, pattern: "^[23456789BCDFGHJKMNPQRTVWXY]{5}$").isEmpty
-        })
+        XCTAssertTrue(staticTextMatching(in: app, pattern: "^[0-9]{6}$").waitForExistence(timeout: 5))
+        XCTAssertTrue(staticTextMatching(in: app, pattern: "^[0-9]{7}$").waitForExistence(timeout: 5))
+        XCTAssertTrue(staticTextMatching(in: app, pattern: "^[0-9]{8}$").waitForExistence(timeout: 5))
+        XCTAssertTrue(staticTextMatching(in: app, pattern: "^[23456789BCDFGHJKMNPQRTVWXY]{5}$").waitForExistence(timeout: 5))
+
+        let nineDigitCode = element(in: app, identifier: "account.code.service.totp-9-md5")
+        XCTAssertTrue(nineDigitCode.waitForExistence(timeout: 5))
+        XCTAssertTrue(nineDigitCode.label.range(of: "^[0-9]{9}$", options: .regularExpression) != nil)
+
+        let tenDigitCode = element(in: app, identifier: "account.code.service.totp-10-sha1")
+        XCTAssertTrue(tenDigitCode.waitForExistence(timeout: 5))
+        XCTAssertTrue(tenDigitCode.label.range(of: "^[0-9]{10}$", options: .regularExpression) != nil)
     }
 
-    private func login(app: XCUIApplication, baseURL: String, apiKey: String) {
+    func testSettingsScreenShowsLiveAccountMetadata() {
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app)
+
+        let settingsTab = app.tabBars.buttons["tab.settings"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 5))
+        settingsTab.tap()
+
+        let appVersion = element(in: app, identifier: "settings.app_version")
+        XCTAssertTrue(appVersion.waitForExistence(timeout: 5))
+
+        let serverURL = element(in: app, identifier: "settings.server_url")
+        XCTAssertTrue(serverURL.waitForExistence(timeout: 5))
+        XCTAssertEqual(serverURL.label, liveConfig.baseURL)
+
+        let lastSync = element(in: app, identifier: "settings.last_sync")
+        XCTAssertTrue(lastSync.waitForExistence(timeout: 5))
+        XCTAssertFalse(lastSync.label.isEmpty)
+
+        XCTAssertTrue(element(in: app, identifier: "settings.auto_lock").waitForExistence(timeout: 5))
+    }
+
+    func testLogoutFromSettingsReturnsToLogin() {
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launchEnvironment["UI_TEST_WIPE_DELAY_MS"] = "2500"
+        app.launch()
+
+        login(app: app)
+
+        let settingsTab = app.tabBars.buttons["tab.settings"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 5))
+        settingsTab.tap()
+
+        let logoutButton = app.buttons["settings.logout"]
+        XCTAssertTrue(logoutButton.waitForExistence(timeout: 5))
+        logoutButton.tap()
+
+        let confirmLogoutButton = app.buttons.matching(identifier: "settings.logout.confirm").firstMatch
+        XCTAssertTrue(confirmLogoutButton.waitForExistence(timeout: 5))
+        confirmLogoutButton.tap()
+
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 5))
+    }
+
+    func testRelaunchAfterLiveLoginRestoresAuthenticatedSession() {
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app)
+        app.terminate()
+
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "0"
+        app.launch()
+
+        let restoredAuthenticatedUI = app.buttons["lock.unlock"].waitForExistence(timeout: 5)
+            || app.tabBars.buttons["tab.settings"].waitForExistence(timeout: 5)
+        XCTAssertTrue(restoredAuthenticatedUI)
+        XCTAssertFalse(app.buttons["login.submit"].exists)
+    }
+
+    func testReloginRequiredLaunchShowsLoginScreen() {
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_START_RELOGIN_REQUIRED"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launch()
+
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["lock.unlock"].exists)
+    }
+
+    private func login(app: XCUIApplication) {
         let submitButton = app.buttons["login.submit"]
         XCTAssertTrue(submitButton.waitForExistence(timeout: 8))
-
-        let baseURLField = app.textFields["login.baseURL"]
-        XCTAssertTrue(baseURLField.waitForExistence(timeout: 2))
-        replaceText(in: baseURLField, with: baseURL)
-
-        let apiKeyField = app.secureTextFields["login.apiKey"]
-        XCTAssertTrue(apiKeyField.waitForExistence(timeout: 2))
-        replaceSecureText(in: apiKeyField, with: apiKey)
-
+        
         submitButton.tap()
 
         let reachedMainUI = app.otherElements["accounts.screen"].waitForExistence(timeout: 8)
@@ -102,13 +160,8 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertTrue(reachedMainUI)
     }
 
-    private func replaceText(in element: XCUIElement, with text: String) {
-        element.tap()
-        if let currentValue = element.value as? String, !currentValue.isEmpty {
-            let deleteText = String(repeating: XCUIKeyboardKey.delete.rawValue, count: currentValue.count)
-            element.typeText(deleteText)
-        }
-        element.typeText(text)
+    private func staticTextMatching(in app: XCUIApplication, pattern: String) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", pattern)).firstMatch
     }
 
     private func replaceSecureText(in element: XCUIElement, with text: String) {
@@ -116,6 +169,10 @@ final class TwoFAuthUITests: XCTestCase {
         let deleteText = String(repeating: XCUIKeyboardKey.delete.rawValue, count: 64)
         element.typeText(deleteText)
         element.typeText(text)
+    }
+
+    private func element(in app: XCUIApplication, identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
     private func allStaticTextMatches(in app: XCUIApplication, pattern: String) -> Set<String> {

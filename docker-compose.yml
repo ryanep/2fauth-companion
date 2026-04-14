@@ -1,0 +1,34 @@
+services:
+  2fauth:
+    image: 2fauth/2fauth:6.1.3
+    environment:
+      APP_NAME: 2FAuth Local E2E
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_TIMEZONE: UTC
+      APP_URL: ${TWOFAUTH_BASE_URL:-http://127.0.0.1:8000}
+      APP_KEY: ${APP_KEY:?APP_KEY must be set}
+      SITE_OWNER: testingAdmin@2fauth.app
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /srv/database/database.sqlite
+      CACHE_DRIVER: file
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: sync
+      AUTHENTICATION_GUARD: web-guard
+      IS_TESTING_APP: "true"
+      LOG_CHANNEL: stderr
+    ports:
+      - "${TWOFAUTH_PORT:-8000}:8000"
+    volumes:
+      - 2fauth_app:/2fauth
+      - 2fauth_database:/srv/database
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  2fauth_app:
+  2fauth_database:
