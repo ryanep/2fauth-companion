@@ -106,6 +106,8 @@ final class AppModelTransportPolicyTests: XCTestCase {
             secretStore: secretStore,
             repository: repository,
             scheduleBackgroundRefresh: {},
+            pushWatchSnapshot: {},
+            clearWatchSnapshot: {},
             biometricAuthenticator: FixedBiometricAuthenticator()
         )
 

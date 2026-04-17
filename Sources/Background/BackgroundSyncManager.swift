@@ -23,6 +23,7 @@ import SwiftData
         private var configStore: any AppConfigStore
         private let secretStore: any SecretStore
         private let repository: any AccountRepository
+        private let clearWatchSnapshot: () -> Void
         private let taskScheduler: any BackgroundTaskScheduling
         private let report: (String, [String: String]) -> Void
 
@@ -31,6 +32,7 @@ import SwiftData
             configStore: any AppConfigStore,
             secretStore: any SecretStore,
             repository: any AccountRepository,
+            clearWatchSnapshot: @escaping () -> Void = {},
             taskScheduler: any BackgroundTaskScheduling = BGTaskScheduler.shared,
             report: @escaping (String, [String: String]) -> Void = ErrorReporter.report
         ) {
@@ -38,6 +40,7 @@ import SwiftData
             self.configStore = configStore
             self.secretStore = secretStore
             self.repository = repository
+            self.clearWatchSnapshot = clearWatchSnapshot
             self.taskScheduler = taskScheduler
             self.report = report
         }
@@ -134,6 +137,7 @@ import SwiftData
                 _ = secretStore.deleteAPIKey()
                 _ = secretStore.deleteEncryptionKey()
                 configStore.requiresRelogin = true
+                clearWatchSnapshot()
                 ErrorReporter.report("background.sync_unauthorized_relogin")
                 return true
             case .transient:

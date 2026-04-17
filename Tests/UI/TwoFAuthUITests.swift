@@ -67,6 +67,23 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertTrue(tenDigitCode.label.range(of: "^[0-9]{10}$", options: .regularExpression) != nil)
     }
 
+    func testLiveLoginPublishesWatchSyncMarker() {
+        let app = XCUIApplication()
+        let markerPath = ProcessInfo.processInfo.environment["UI_TEST_WATCH_SYNC_MARKER_PATH"]
+            ?? NSTemporaryDirectory().appending("watch-sync-marker-ui-tests.json")
+        try? FileManager.default.removeItem(atPath: markerPath)
+
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launchEnvironment["UI_TEST_ASSUME_WATCH_APP_INSTALLED"] = "1"
+        app.launchEnvironment["UI_TEST_WATCH_SYNC_MARKER_PATH"] = markerPath
+        app.launch()
+
+        login(app: app, timeout: 20)
+        XCTAssertTrue(waitForWatchSyncMarker(at: markerPath, timeout: 12), markerFailureMessage(at: markerPath))
+    }
+
     func testSettingsScreenShowsLiveAccountMetadata() {
         let app = XCUIApplication()
         app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
@@ -148,16 +165,44 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertFalse(app.buttons["lock.unlock"].exists)
     }
 
-    private func login(app: XCUIApplication) {
+    private func login(app: XCUIApplication, timeout: TimeInterval = 8) {
         let submitButton = app.buttons["login.submit"]
         XCTAssertTrue(submitButton.waitForExistence(timeout: 8))
         
         submitButton.tap()
 
-        let reachedMainUI = app.otherElements["accounts.screen"].waitForExistence(timeout: 8)
+        let reachedMainUI = app.otherElements["accounts.screen"].waitForExistence(timeout: timeout)
             || app.otherElements["settings.screen"].exists
             || app.tabBars.firstMatch.waitForExistence(timeout: 2)
         XCTAssertTrue(reachedMainUI)
+    }
+
+    private func waitForWatchSyncMarker(at path: String, timeout: TimeInterval) -> Bool {
+        waitUntil(timeout: timeout) {
+            markerEvent(at: path) == "watch.sync_updated_context"
+        }
+    }
+
+    private func markerFailureMessage(at path: String) -> String {
+        guard let payload = markerPayload(at: path), !payload.isEmpty else {
+            return "Expected watch sync marker at \(path)"
+        }
+
+        return "Unexpected watch sync marker: \(payload)"
+    }
+
+    private func markerEvent(at path: String) -> String? {
+        markerPayload(at: path)?["event"]
+    }
+
+    private func markerPayload(at path: String) -> [String: String]? {
+        guard let data = FileManager.default.contents(atPath: path),
+            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+        else {
+            return nil
+        }
+
+        return payload
     }
 
     private func staticTextMatching(in app: XCUIApplication, pattern: String) -> XCUIElement {

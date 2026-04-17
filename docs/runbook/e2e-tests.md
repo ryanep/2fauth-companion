@@ -56,6 +56,14 @@ Run the full end-to-end flow:
 make -f makefile e2e-live XCODE_DESTINATION='platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4'
 ```
 
+Run the paired watch end-to-end flow:
+
+```bash
+make -f makefile watch-e2e-live PHONE_SIM_ID='<paired-iphone-udid>' WATCH_SIM_ID='<paired-watch-udid>'
+```
+
+This flow boots the paired simulators, runs a dedicated iPhone UI prep test against the real local backend, waits for the production watch sync path to publish its application context, and then runs the watch UI suite on the paired watch simulator.
+
 ## Seeded Data
 
 `make -f makefile 2fauth-reset` uses the upstream testing reset command and then replaces the default user accounts with these deterministic entries for `testinguser@2fauth.app`:
@@ -102,6 +110,12 @@ If UI tests fail before launch, make sure `XCODE_DESTINATION` matches a simulato
 
 ```bash
 xcodebuild -showdestinations -project "2FAuth.xcodeproj" -scheme "2FAuth"
+```
+
+To find paired simulator UDIDs for the watch flow:
+
+```bash
+xcrun simctl list devices available
 ```
 
 If you want a different port:

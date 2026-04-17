@@ -31,6 +31,8 @@ final class AppModel: ObservableObject {
     private let secretStore: any SecretStore
     private let repository: any AccountRepository
     private let scheduleBackgroundRefresh: () -> Void
+    private let pushWatchSnapshot: () -> Void
+    private let clearWatchSnapshot: () -> Void
     private let biometricAuthenticator: any BiometricAuthenticator
 
     private var unlockedState: SessionState = .unlocked
@@ -47,6 +49,8 @@ final class AppModel: ObservableObject {
         secretStore: any SecretStore,
         repository: any AccountRepository,
         scheduleBackgroundRefresh: @escaping () -> Void,
+        pushWatchSnapshot: @escaping () -> Void,
+        clearWatchSnapshot: @escaping () -> Void,
         biometricAuthenticator: any BiometricAuthenticator = LocalBiometricAuthenticator()
     ) {
         self.modelContext = modelContext
@@ -54,6 +58,8 @@ final class AppModel: ObservableObject {
         self.secretStore = secretStore
         self.repository = repository
         self.scheduleBackgroundRefresh = scheduleBackgroundRefresh
+        self.pushWatchSnapshot = pushWatchSnapshot
+        self.clearWatchSnapshot = clearWatchSnapshot
         self.biometricAuthenticator = biometricAuthenticator
         self.baseURLInput = configStore.baseURLString ?? ""
         self.autoLockTimeoutSeconds = configStore.autoLockTimeoutSeconds
@@ -90,6 +96,7 @@ final class AppModel: ObservableObject {
 
         if hasSessionConfiguration {
             sessionState = .locked
+            pushWatchSnapshot()
         } else {
             sessionState = .loggedOut
         }
@@ -132,6 +139,7 @@ final class AppModel: ObservableObject {
                 sessionState = .unlocked
                 scheduleBackgroundRefresh()
                 startTimer()
+                pushWatchSnapshot()
             } catch {
                 ErrorReporter.report("login.secure_store_failed")
                 loginError = String(localized: "login.error.secure_store_failed")
@@ -209,6 +217,7 @@ final class AppModel: ObservableObject {
             }
             syncMessage = nil
             startTimer()
+            pushWatchSnapshot()
         case .unauthorized:
             ErrorReporter.report("sync.unauthorized")
             await enforceReloginWipe()
@@ -329,6 +338,7 @@ final class AppModel: ObservableObject {
         lastSuccessfulSyncAt = nil
         baseURLInput = configStore.baseURLString ?? ""
         unlockedState = .unlocked
+        clearWatchSnapshot()
     }
 }
 

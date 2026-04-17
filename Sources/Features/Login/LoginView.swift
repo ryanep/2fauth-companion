@@ -3,6 +3,7 @@ import SwiftUI
 struct LoginView: View {
     @EnvironmentObject private var appModel: AppModel
     @State private var apiKey: String = ""
+    @State private var didTriggerAutoLogin = false
 
     private var usesInsecureHTTP: Bool {
         appModel.baseURLInput
@@ -70,6 +71,19 @@ struct LoginView: View {
 
                     if let token = ProcessInfo.processInfo.environment["UI_TEST_API_TOKEN"], !token.isEmpty {
                         apiKey = token
+                    }
+
+                    if ProcessInfo.processInfo.environment["UI_TEST_AUTO_LOGIN"] == "1",
+                        !didTriggerAutoLogin,
+                        !appModel.baseURLInput.isEmpty,
+                        !apiKey.isEmpty
+                    {
+                        didTriggerAutoLogin = true
+                        let loginToken = apiKey
+                        Task {
+                            await appModel.attemptLogin(apiKey: loginToken)
+                            apiKey = ""
+                        }
                     }
                 #endif
             }

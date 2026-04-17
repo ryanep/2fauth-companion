@@ -50,6 +50,16 @@ jobs:
             -only-testing:2FAuthTests \
             | tee "$RUNNER_TEMP/xcodebuild-test.log"
 
+      - name: Build watch target
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project "2FAuth.xcodeproj" \
+            -scheme "2FAuthWatch" \
+            -destination "generic/platform=watchOS Simulator" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/xcodebuild-watch-build.log"
+
       - name: Archive (Release)
         run: |
           set -o pipefail
@@ -75,3 +85,10 @@ jobs:
         with:
           name: xcodebuild-test-log
           path: ${{ runner.temp }}/xcodebuild-test.log
+
+      - name: Upload watch build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-watch-build-log
+          path: ${{ runner.temp }}/xcodebuild-watch-build.log

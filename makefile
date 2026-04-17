@@ -4,7 +4,7 @@ TWOFAUTH_PORT ?= 8000
 TWOFAUTH_BASE_URL ?= http://127.0.0.1:$(TWOFAUTH_PORT)
 APP_KEY ?= base64:$(shell openssl rand -base64 32)
 
-.PHONY: 2fauth-up 2fauth-reset 2fauth-token 2fauth-preflight 2fauth-preflight-bad-token ui-test-live e2e-live
+.PHONY: 2fauth-up 2fauth-reset 2fauth-token 2fauth-preflight 2fauth-preflight-bad-token ui-test-live watch-e2e-live e2e-live
 
 2fauth-up:
 	APP_KEY="$(APP_KEY)" TWOFAUTH_BASE_URL="$(TWOFAUTH_BASE_URL)" TWOFAUTH_PORT="$(TWOFAUTH_PORT)" ./Scripts/e2e/local-2fauth-up.sh
@@ -32,5 +32,17 @@ ui-test-live: 2fauth-reset 2fauth-preflight
 	UI_TEST_API_TOKEN="$${UI_TEST_API_TOKEN:-$$(APP_KEY="$(APP_KEY)" TWOFAUTH_BASE_URL="$(TWOFAUTH_BASE_URL)" TWOFAUTH_PORT="$(TWOFAUTH_PORT)" ./Scripts/e2e/local-2fauth-token.sh | tr -d '\r\n')}"; \
 	printf '{"baseURL":"%s","apiToken":"%s"}\n' "$$UI_TEST_BASE_URL" "$$UI_TEST_API_TOKEN" > "Tests/UI/Generated/live-config.json"; \
 	xcodebuild test -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "$${XCODE_DESTINATION}" -only-testing:2FAuthUITests
+
+watch-e2e-live: 2fauth-reset 2fauth-preflight
+	@set -eu; \
+	if [ -z "$${PHONE_SIM_ID:-}" ]; then \
+		printf '%s\n' "Set PHONE_SIM_ID to a paired iPhone simulator UDID" >&2; \
+		exit 1; \
+	fi; \
+	if [ -z "$${WATCH_SIM_ID:-}" ]; then \
+		printf '%s\n' "Set WATCH_SIM_ID to the paired watch simulator UDID" >&2; \
+		exit 1; \
+	fi; \
+	APP_KEY="$(APP_KEY)" TWOFAUTH_BASE_URL="$(TWOFAUTH_BASE_URL)" TWOFAUTH_PORT="$(TWOFAUTH_PORT)" PHONE_SIM_ID="$${PHONE_SIM_ID}" WATCH_SIM_ID="$${WATCH_SIM_ID}" ./Scripts/e2e/watch-e2e-live.sh
 
 e2e-live: ui-test-live

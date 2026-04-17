@@ -4,6 +4,7 @@ final class UserDefaultsAppConfigStore: AppConfigStore {
     private enum Keys {
         static let baseURL = "config.baseURL"
         static let requiresRelogin = "config.requiresRelogin"
+        static let hasPendingWatchClear = "config.hasPendingWatchClear"
         static let autoLockTimeoutSeconds = "config.autoLockTimeoutSeconds"
         static let lastSuccessfulSyncAt = "config.lastSuccessfulSyncAt"
         static let transportPolicy = "config.transportPolicy"
@@ -27,6 +28,11 @@ final class UserDefaultsAppConfigStore: AppConfigStore {
     var requiresRelogin: Bool {
         get { defaults.bool(forKey: Keys.requiresRelogin) }
         set { defaults.set(newValue, forKey: Keys.requiresRelogin) }
+    }
+
+    var hasPendingWatchClear: Bool {
+        get { defaults.bool(forKey: Keys.hasPendingWatchClear) }
+        set { defaults.set(newValue, forKey: Keys.hasPendingWatchClear) }
     }
 
     var autoLockTimeoutSeconds: Int {

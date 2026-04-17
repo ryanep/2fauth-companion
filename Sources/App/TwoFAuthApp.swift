@@ -17,15 +17,20 @@ struct TwoFAuthApp: App {
             let cryptoStore: any CryptoStore = AESGCMCryptoStore(secretStore: secretStore)
             let apiClient: any APIClient = URLSessionAPIClient()
             let repository: any AccountRepository = DefaultAccountRepository(apiClient: apiClient, cryptoStore: cryptoStore)
+            let watchManager = WatchSyncManager(configStore: configStore)
             let backgroundManager = BackgroundSyncManager(
                 modelContainer: container,
                 configStore: configStore,
                 secretStore: secretStore,
-                repository: repository
+                repository: repository,
+                clearWatchSnapshot: {
+                    watchManager.pushEmptySnapshot()
+                }
             )
+            watchManager.activate()
+            watchManager.resumePendingSyncIfNeeded()
 
             backgroundManager.register()
-
             self.appModel = AppModel(
                 modelContext: container.mainContext,
                 configStore: configStore,
@@ -33,6 +38,12 @@ struct TwoFAuthApp: App {
                 repository: repository,
                 scheduleBackgroundRefresh: {
                     backgroundManager.scheduleAppRefresh()
+                },
+                pushWatchSnapshot: {
+                    watchManager.pushLatestSnapshot(from: container.mainContext, repository: repository)
+                },
+                clearWatchSnapshot: {
+                    watchManager.pushEmptySnapshot()
                 }
             )
             self.backgroundSyncManager = backgroundManager
