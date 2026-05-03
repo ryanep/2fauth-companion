@@ -50,6 +50,16 @@ jobs:
             -only-testing:2FAuthTests \
             | tee "$RUNNER_TEMP/xcodebuild-test.log"
 
+      - name: Run iPad launch UI test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project "2FAuth.xcodeproj" \
+            -scheme "2FAuth" \
+            -destination "platform=iOS Simulator,name=iPad Pro 13-inch (M4),OS=18.5" \
+            -only-testing:2FAuthUITests/TwoFAuthUITests/testLaunchOnIPad \
+            | tee "$RUNNER_TEMP/xcodebuild-ipad-ui-test.log"
+
       - name: Build watch target
         run: |
           set -o pipefail

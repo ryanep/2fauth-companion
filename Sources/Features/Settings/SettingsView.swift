@@ -50,6 +50,10 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        settingsForm
+    }
+
+    private var settingsForm: some View {
         Form {
             Section("settings.section.about") {
                 settingsRow(label: String(localized: "settings.app_version.label"), value: appVersionText, identifier: "settings.app_version")

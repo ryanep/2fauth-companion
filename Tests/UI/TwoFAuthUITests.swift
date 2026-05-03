@@ -1,5 +1,9 @@
 import XCTest
 
+#if canImport(UIKit)
+    import UIKit
+#endif
+
 @MainActor
 final class TwoFAuthUITests: XCTestCase {
     private struct LiveConfig: Decodable {
@@ -37,6 +41,29 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 2))
     }
 
+    func testLaunchOnIPad() throws {
+        try requireIPadDestination()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launch()
+
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 2))
+    }
+
+    func testLoginScreenShowsNativeFormControlsOnIPad() throws {
+        try requireIPadDestination()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launch()
+
+        XCTAssertTrue(element(in: app, identifier: "login.screen").waitForExistence(timeout: 2))
+        XCTAssertTrue(app.textFields["login.baseURL"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.secureTextFields["login.apiKey"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 2))
+    }
+
     func testLiveBackendShowsSeededAccountsAndCodes() {
         let app = XCUIApplication()
         app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
@@ -44,7 +71,7 @@ final class TwoFAuthUITests: XCTestCase {
         app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
         app.launch()
 
-        login(app: app)
+        login(app: app, timeout: 20)
 
         XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["TOTP 7 SHA256"].waitForExistence(timeout: 5))
@@ -65,6 +92,136 @@ final class TwoFAuthUITests: XCTestCase {
         let tenDigitCode = element(in: app, identifier: "account.code.service.totp-10-sha1")
         XCTAssertTrue(tenDigitCode.waitForExistence(timeout: 5))
         XCTAssertTrue(tenDigitCode.label.range(of: "^[0-9]{10}$", options: .regularExpression) != nil)
+    }
+
+    func testLiveBackendUsesGridOnIPad() throws {
+        try requireIPadDestination()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app, timeout: 20)
+
+        XCTAssertTrue(element(in: app, identifier: "accounts.grid").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
+
+        let sixDigitCode = element(in: app, identifier: "account.code.service.totp-6-sha1")
+        XCTAssertTrue(sixDigitCode.waitForExistence(timeout: 5))
+        XCTAssertTrue(sixDigitCode.label.range(of: "^[0-9]{6}$", options: .regularExpression) != nil)
+        XCTAssertEqual(sixDigitCode.value as? String, "ready")
+
+        sixDigitCode.tap()
+
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            sixDigitCode.value as? String == "copied"
+        })
+        XCTAssertEqual(sixDigitCode.value as? String, "copied")
+    }
+
+    func testLiveBackendFallsBackToListOnNarrowIPadWidth() throws {
+        try requireIPadDestination()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launchEnvironment["UI_TEST_FORCE_ACCOUNTS_COMPACT_LAYOUT"] = "1"
+        app.launch()
+
+        login(app: app, timeout: 20)
+
+        XCTAssertTrue(element(in: app, identifier: "accounts.list").waitForExistence(timeout: 5))
+        XCTAssertFalse(element(in: app, identifier: "accounts.grid").exists)
+        XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
+    }
+
+    func testLiveBackendReturnsToGridAfterSettingsRoundTripOnIPad() throws {
+        try requireIPadDestination()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app, timeout: 20)
+
+        let initialGrid = element(in: app, identifier: "accounts.grid")
+        XCTAssertTrue(initialGrid.waitForExistence(timeout: 5))
+
+        let settingsTab = element(in: app, identifier: "tab.settings")
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 5))
+        settingsTab.tap()
+
+        XCTAssertTrue(element(in: app, identifier: "settings.screen").waitForExistence(timeout: 5))
+
+        let accountsTab = element(in: app, identifier: "tab.accounts")
+        XCTAssertTrue(accountsTab.waitForExistence(timeout: 5))
+        accountsTab.tap()
+
+        let returnedGrid = element(in: app, identifier: "accounts.grid")
+        XCTAssertTrue(returnedGrid.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
+    }
+
+    func testLiveBackendUsesGridOnIPadLandscape() throws {
+        try requireIPadDestination()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app, timeout: 20)
+        rotateToLandscape()
+        defer { rotateToPortrait() }
+        assertAppReachedLandscape(in: app, timeout: 5)
+
+        let grid = element(in: app, identifier: "accounts.grid")
+        XCTAssertTrue(grid.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
+
+        let sixDigitCode = element(in: app, identifier: "account.code.service.totp-6-sha1")
+        XCTAssertTrue(sixDigitCode.waitForExistence(timeout: 5))
+        XCTAssertTrue(sixDigitCode.label.range(of: "^[0-9]{6}$", options: .regularExpression) != nil)
+        XCTAssertEqual(sixDigitCode.value as? String, "ready")
+
+        sixDigitCode.tap()
+
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            sixDigitCode.value as? String == "copied"
+        })
+        XCTAssertEqual(sixDigitCode.value as? String, "copied")
+    }
+
+    func testLiveBackendSearchesOnIPadLandscape() throws {
+        try requireIPadDestination()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app, timeout: 20)
+        rotateToLandscape()
+        defer { rotateToPortrait() }
+        assertAppReachedLandscape(in: app, timeout: 5)
+
+        let grid = element(in: app, identifier: "accounts.grid")
+        XCTAssertTrue(grid.waitForExistence(timeout: 5))
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        searchField.tap()
+        searchField.typeText("Steam")
+
+        XCTAssertTrue(app.staticTexts["Steam Fixture"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["TOTP 6 SHA1"].exists)
     }
 
     func testLiveLoginPublishesWatchSyncMarker() {
@@ -93,7 +250,7 @@ final class TwoFAuthUITests: XCTestCase {
 
         login(app: app)
 
-        let settingsTab = app.tabBars.buttons["tab.settings"]
+        let settingsTab = element(in: app, identifier: "tab.settings")
         XCTAssertTrue(settingsTab.waitForExistence(timeout: 5))
         settingsTab.tap()
 
@@ -109,6 +266,29 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertFalse(lastSync.label.isEmpty)
 
         XCTAssertTrue(element(in: app, identifier: "settings.auto_lock").waitForExistence(timeout: 5))
+    }
+
+    func testSettingsScreenShowsNativeFormControlsOnIPad() throws {
+        try requireIPadDestination()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app)
+
+        let settingsTab = element(in: app, identifier: "tab.settings")
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 5))
+        settingsTab.tap()
+
+        XCTAssertTrue(element(in: app, identifier: "settings.screen").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(in: app, identifier: "settings.app_version").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(in: app, identifier: "settings.server_url").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(in: app, identifier: "settings.last_sync").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(in: app, identifier: "settings.auto_lock").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["settings.logout"].waitForExistence(timeout: 5))
     }
 
     func testLogoutFromSettingsReturnsToLogin() {
@@ -171,10 +351,37 @@ final class TwoFAuthUITests: XCTestCase {
         
         submitButton.tap()
 
-        let reachedMainUI = app.otherElements["accounts.screen"].waitForExistence(timeout: timeout)
-            || app.otherElements["settings.screen"].exists
+        let reachedMainUI = element(in: app, identifier: "accounts.screen").waitForExistence(timeout: timeout)
+            || element(in: app, identifier: "settings.screen").exists
             || app.tabBars.firstMatch.waitForExistence(timeout: 2)
         XCTAssertTrue(reachedMainUI)
+    }
+
+    private func requireIPadDestination() throws {
+        #if canImport(UIKit)
+            guard UIDevice.current.userInterfaceIdiom == .pad else {
+                throw XCTSkip("iPad-only UI regression test")
+            }
+        #else
+            throw XCTSkip("iPad-only UI regression test")
+        #endif
+    }
+
+    private func assertAppReachedLandscape(in app: XCUIApplication, timeout: TimeInterval) {
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: timeout))
+        XCTAssertTrue(waitUntil(timeout: timeout) {
+            let frame = window.frame
+            return frame.width > frame.height
+        }, "Expected app window to be wider than tall after rotating to landscape")
+    }
+
+    private func rotateToLandscape() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+    }
+
+    private func rotateToPortrait() {
+        XCUIDevice.shared.orientation = .portrait
     }
 
     private func waitForWatchSyncMarker(at path: String, timeout: TimeInterval) -> Bool {

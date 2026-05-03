@@ -7,19 +7,16 @@ import SwiftUI
 #endif
 
 struct AccountsView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var appModel: AppModel
     @Query private var accounts: [AccountEntity]
     @State private var searchText: String = ""
 
     var body: some View {
-        List(filteredAccounts) { account in
-            AccountRowView(account: account)
-                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+        content
+        .overlay(alignment: .topLeading) {
+            accessibilityMarker("accounts.screen")
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
         .background(Color(uiColor: .systemGroupedBackground))
         .overlay {
             if filteredAccounts.isEmpty {
@@ -32,9 +29,6 @@ struct AccountsView: View {
         }
         .navigationTitle("accounts.title")
         .searchable(text: $searchText, prompt: Text("accounts.search.prompt"))
-        .refreshable {
-            await appModel.syncNow()
-        }
         .safeAreaInset(edge: .bottom) {
             if let syncMessage = appModel.syncMessage {
                 Text(syncMessage)
@@ -46,7 +40,51 @@ struct AccountsView: View {
         .task {
             await appModel.syncNow()
         }
-        .accessibilityIdentifier("accounts.screen")
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if usesAccountsGridLayout(for: horizontalSizeClass) {
+            ScrollView {
+                LazyVGrid(columns: gridColumns, spacing: 16) {
+                    ForEach(filteredAccounts) { account in
+                        AccountItemView(account: account)
+                    }
+                }
+                .padding(16)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("accounts.grid")
+            .refreshable {
+                await appModel.syncNow()
+            }
+        } else {
+            List(filteredAccounts) { account in
+                AccountItemView(account: account)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("accounts.list")
+            .refreshable {
+                await appModel.syncNow()
+            }
+        }
+    }
+
+    private var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 320, maximum: 420), spacing: 16, alignment: .top)]
+    }
+
+    private func accessibilityMarker(_ identifier: String) -> some View {
+        Color.primary
+            .opacity(0.001)
+            .frame(width: 1, height: 1)
+            .accessibilityElement()
+            .accessibilityIdentifier(identifier)
     }
 
     private var filteredAccounts: [AccountEntity] {
@@ -71,6 +109,18 @@ struct AccountsView: View {
     }
 }
 
+@MainActor
+func usesAccountsGridLayout(for horizontalSizeClass: UserInterfaceSizeClass?) -> Bool {
+    #if DEBUG
+        if ProcessInfo.processInfo.environment["UI_TEST_FORCE_ACCOUNTS_COMPACT_LAYOUT"] == "1" {
+            return false
+        }
+        return UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    #else
+        return UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    #endif
+}
+
 func sortAccountsForDisplay(_ accounts: [AccountEntity]) -> [AccountEntity] {
     accounts.sorted { lhs, rhs in
         let lhsService = (lhs.service ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -88,7 +138,7 @@ func sortAccountsForDisplay(_ accounts: [AccountEntity]) -> [AccountEntity] {
     }
 }
 
-private struct AccountRowView: View {
+private struct AccountItemView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appModel: AppModel
     let account: AccountEntity
@@ -191,8 +241,11 @@ private struct AccountRowView: View {
         if isTimeBasedCode {
             Text(otpCode)
                 .font(.title2.monospaced().weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .foregroundStyle(didCopyCode ? .green : .primary)
                 .accessibilityIdentifier("account.code.service.\(serviceAccessibilityKey)")
+                .accessibilityValue(didCopyCode ? "copied" : "ready")
         } else {
             Text("accounts.otp.unsupported")
                 .font(.caption)

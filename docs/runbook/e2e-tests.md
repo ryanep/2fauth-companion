@@ -50,6 +50,12 @@ Run the live UI smoke suite:
 make -f makefile ui-test-live XCODE_DESTINATION='platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4'
 ```
 
+Run the dedicated iPad UI regressions against the live backend:
+
+```bash
+make -f makefile ui-test-live-ipad XCODE_DESTINATION='platform=iOS Simulator,name=iPad Pro 13-inch (M4),OS=26.4'
+```
+
 Run the full end-to-end flow:
 
 ```bash
