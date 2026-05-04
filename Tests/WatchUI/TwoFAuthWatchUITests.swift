@@ -21,17 +21,17 @@ final class TwoFAuthWatchUITests: XCTestCase {
         XCTAssertFalse(app.otherElements["watch.empty"].waitForExistence(timeout: 1))
 
         let rows = app.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "watch.row."))
-        XCTAssertEqual(rows.element(boundBy: 0).identifier, "watch.row.steam-fixture")
-        XCTAssertEqual(rows.element(boundBy: 1).identifier, "watch.row.totp-10-sha1")
+        XCTAssertEqual(rows.element(boundBy: 0).identifier, "watch.row.amazon")
+        XCTAssertEqual(rows.element(boundBy: 11).identifier, "watch.row.stripe")
 
-        let steamCode = app.staticTexts["watch.code.steam-fixture"]
+        let steamCode = app.staticTexts["watch.code.steam"]
         XCTAssertTrue(scrollUntilExists(steamCode, in: app))
         XCTAssertTrue(steamCode.label.range(of: "^[23456789BCDFGHJKMNPQRTVWXY]{5}$", options: .regularExpression) != nil)
 
-        let totpTenCode = app.staticTexts["watch.code.totp-10-sha1"]
+        let totpTenCode = app.staticTexts["watch.code.stripe"]
         XCTAssertTrue(scrollUntilExists(totpTenCode, in: app))
         XCTAssertTrue(totpTenCode.label.range(of: "^[0-9]{10}$", options: .regularExpression) != nil)
-        XCTAssertTrue(scrollUntilExists(app.staticTexts["watch.countdown.totp-10-sha1"], in: app))
+        XCTAssertTrue(scrollUntilExists(app.staticTexts["watch.countdown.stripe"], in: app))
     }
 
     private func scrollUntilExists(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 6) -> Bool {

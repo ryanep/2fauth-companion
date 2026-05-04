@@ -74,13 +74,18 @@ This flow boots the paired simulators, runs a dedicated iPhone UI prep test agai
 
 `make -f makefile 2fauth-reset` uses the upstream testing reset command and then replaces the default user accounts with these deterministic entries for `testinguser@2fauth.app`:
 
-- `TOTP 6 SHA1`
-- `TOTP 7 SHA256`
-- `TOTP 8 SHA512`
-- `TOTP 9 MD5`
-- `TOTP 10 SHA1`
-- `HOTP Fixture`
-- `Steam Fixture`
+- `Amazon`
+- `Discord`
+- `Dropbox`
+- `GitHub`
+- `Google`
+- `Microsoft`
+- `Nintendo`
+- `Notion`
+- `PlayStation`
+- `Reddit`
+- `Steam`
+- `Stripe`
 
 The reset now runs preflight verification immediately and fails if any extra demo accounts remain for `testinguser@2fauth.app`.
 

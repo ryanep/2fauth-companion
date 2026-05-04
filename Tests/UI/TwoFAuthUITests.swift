@@ -73,24 +73,24 @@ final class TwoFAuthUITests: XCTestCase {
 
         login(app: app, timeout: 20)
 
-        XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["TOTP 7 SHA256"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["TOTP 8 SHA512"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["TOTP 9 MD5"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["TOTP 10 SHA1"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Steam Fixture"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Amazon"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Google"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Microsoft"].waitForExistence(timeout: 5))
+        XCTAssertTrue(scrollUntilExists(app.staticTexts["PlayStation"], in: app))
+        XCTAssertTrue(scrollUntilExists(app.staticTexts["Steam"], in: app))
+        XCTAssertTrue(scrollUntilExists(app.staticTexts["Stripe"], in: app))
 
         XCTAssertTrue(staticTextMatching(in: app, pattern: "^[0-9]{6}$").waitForExistence(timeout: 5))
         XCTAssertTrue(staticTextMatching(in: app, pattern: "^[0-9]{7}$").waitForExistence(timeout: 5))
         XCTAssertTrue(staticTextMatching(in: app, pattern: "^[0-9]{8}$").waitForExistence(timeout: 5))
-        XCTAssertTrue(staticTextMatching(in: app, pattern: "^[23456789BCDFGHJKMNPQRTVWXY]{5}$").waitForExistence(timeout: 5))
+        XCTAssertTrue(scrollUntilExists(staticTextMatching(in: app, pattern: "^[23456789BCDFGHJKMNPQRTVWXY]{5}$"), in: app))
 
-        let nineDigitCode = element(in: app, identifier: "account.code.service.totp-9-md5")
-        XCTAssertTrue(nineDigitCode.waitForExistence(timeout: 5))
+        let nineDigitCode = element(in: app, identifier: "account.code.service.playstation")
+        XCTAssertTrue(scrollUntilExists(nineDigitCode, in: app))
         XCTAssertTrue(nineDigitCode.label.range(of: "^[0-9]{9}$", options: .regularExpression) != nil)
 
-        let tenDigitCode = element(in: app, identifier: "account.code.service.totp-10-sha1")
-        XCTAssertTrue(tenDigitCode.waitForExistence(timeout: 5))
+        let tenDigitCode = element(in: app, identifier: "account.code.service.stripe")
+        XCTAssertTrue(scrollUntilExists(tenDigitCode, in: app))
         XCTAssertTrue(tenDigitCode.label.range(of: "^[0-9]{10}$", options: .regularExpression) != nil)
     }
 
@@ -106,9 +106,9 @@ final class TwoFAuthUITests: XCTestCase {
         login(app: app, timeout: 20)
 
         XCTAssertTrue(element(in: app, identifier: "accounts.grid").waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Amazon"].waitForExistence(timeout: 5))
 
-        let sixDigitCode = element(in: app, identifier: "account.code.service.totp-6-sha1")
+        let sixDigitCode = element(in: app, identifier: "account.code.service.amazon")
         XCTAssertTrue(sixDigitCode.waitForExistence(timeout: 5))
         XCTAssertTrue(sixDigitCode.label.range(of: "^[0-9]{6}$", options: .regularExpression) != nil)
         XCTAssertEqual(sixDigitCode.value as? String, "ready")
@@ -135,7 +135,7 @@ final class TwoFAuthUITests: XCTestCase {
 
         XCTAssertTrue(element(in: app, identifier: "accounts.list").waitForExistence(timeout: 5))
         XCTAssertFalse(element(in: app, identifier: "accounts.grid").exists)
-        XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Amazon"].waitForExistence(timeout: 5))
     }
 
     func testLiveBackendReturnsToGridAfterSettingsRoundTripOnIPad() throws {
@@ -164,7 +164,7 @@ final class TwoFAuthUITests: XCTestCase {
 
         let returnedGrid = element(in: app, identifier: "accounts.grid")
         XCTAssertTrue(returnedGrid.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Amazon"].waitForExistence(timeout: 5))
     }
 
     func testLiveBackendUsesGridOnIPadLandscape() throws {
@@ -183,9 +183,9 @@ final class TwoFAuthUITests: XCTestCase {
 
         let grid = element(in: app, identifier: "accounts.grid")
         XCTAssertTrue(grid.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["TOTP 6 SHA1"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Amazon"].waitForExistence(timeout: 5))
 
-        let sixDigitCode = element(in: app, identifier: "account.code.service.totp-6-sha1")
+        let sixDigitCode = element(in: app, identifier: "account.code.service.amazon")
         XCTAssertTrue(sixDigitCode.waitForExistence(timeout: 5))
         XCTAssertTrue(sixDigitCode.label.range(of: "^[0-9]{6}$", options: .regularExpression) != nil)
         XCTAssertEqual(sixDigitCode.value as? String, "ready")
@@ -220,8 +220,8 @@ final class TwoFAuthUITests: XCTestCase {
         searchField.tap()
         searchField.typeText("Steam")
 
-        XCTAssertTrue(app.staticTexts["Steam Fixture"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts["TOTP 6 SHA1"].exists)
+        XCTAssertTrue(app.staticTexts["Steam"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Amazon"].exists)
     }
 
     func testLiveLoginPublishesWatchSyncMarker() {
@@ -445,5 +445,20 @@ final class TwoFAuthUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return condition()
+    }
+
+    private func scrollUntilExists(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 6) -> Bool {
+        if element.waitForExistence(timeout: 2) {
+            return true
+        }
+
+        for _ in 0..<maxSwipes {
+            app.swipeUp()
+            if element.waitForExistence(timeout: 1) {
+                return true
+            }
+        }
+
+        return element.exists
     }
 }

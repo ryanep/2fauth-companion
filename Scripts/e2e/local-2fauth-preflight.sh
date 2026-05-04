@@ -12,7 +12,7 @@ if [ ! -x "$RUBY_BIN" ]; then
   RUBY_BIN=ruby
 fi
 
-EXPECTED_SERVICES='["HOTP Fixture","Steam Fixture","TOTP 10 SHA1","TOTP 6 SHA1","TOTP 7 SHA256","TOTP 8 SHA512","TOTP 9 MD5"]'
+EXPECTED_SERVICES='["Amazon","Discord","Dropbox","GitHub","Google","Microsoft","Nintendo","Notion","PlayStation","Reddit","Steam","Stripe"]'
 export EXPECTED_SERVICES
 USER_ENDPOINT="$BASE_URL/api/v1/user"
 ACCOUNTS_ENDPOINT="$BASE_URL/api/v1/twofaccounts?withSecret=1"
