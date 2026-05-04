@@ -134,7 +134,7 @@
 		3B811F676470859364AC77D7 /* AppModelTransportPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelTransportPolicyTests.swift; sourceTree = "<group>"; };
 		435E8379033CD87F9C47052D /* TwoFAuthApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFAuthApp.swift; sourceTree = "<group>"; };
 		456F6FB21871EBC4E8B5B319 /* SteamGuardGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SteamGuardGenerator.swift; sourceTree = "<group>"; };
-		492885A42FC7CE3B40046D55 /* 2FAuth.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = 2FAuth.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		492885A42FC7CE3B40046D55 /* 2FAuth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = 2FAuth.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		52D84EB658859103F6C6C6AB /* AppModelStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelStateMachineTests.swift; sourceTree = "<group>"; };
 		5515BF308A085009A8E2399B /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		5988D2822260422DDA9C576A /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
@@ -145,7 +145,7 @@
 		716AA7C9094209C1E94ED051 /* watch-sync-payload.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "watch-sync-payload.json"; sourceTree = "<group>"; };
 		74FB010349A7BF026CA7D3B0 /* TwoFAuthUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFAuthUITests.swift; sourceTree = "<group>"; };
 		75666BD3660077B6A3342176 /* BiometricAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricAuthenticator.swift; sourceTree = "<group>"; };
-		7586A01A7FA4BA98A17E55B1 /* 2FAuthUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = 2FAuthUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7586A01A7FA4BA98A17E55B1 /* 2FAuthUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = 2FAuthUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		784F9E86DAB65F8D62E63665 /* WatchSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSecretStore.swift; sourceTree = "<group>"; };
 		7B1262A5A476FCABCC3ECABE /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		85453843E9453C29F9A2895F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -162,7 +162,7 @@
 		C306985A647D7EDEF7FC1E58 /* CryptoStoreProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoStoreProtocol.swift; sourceTree = "<group>"; };
 		C6CB5B79497A9E57773CF756 /* APIClientProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientProtocol.swift; sourceTree = "<group>"; };
 		D235C314A1D8B083C7E08B3E /* WatchSyncPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncPayload.swift; sourceTree = "<group>"; };
-		D2D9338C8CC5748C88F0DB1D /* 2FAuthTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = 2FAuthTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2D9338C8CC5748C88F0DB1D /* 2FAuthTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = 2FAuthTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D56C77995FB9E865F747FC53 /* 2FAuthWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = 2FAuthWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D8E1A6AB65B2F40C90EF0CAD /* AccountRepositoryProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountRepositoryProtocol.swift; sourceTree = "<group>"; };
 		DA68A978214E94768AF1944D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -548,7 +548,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					3F2FADDBDD8C130842955361 = {
 						DevelopmentTeam = 64C39764NA;
@@ -789,7 +789,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanep.2fauth;
 				PRODUCT_MODULE_NAME = TwoFAuth;
 				PRODUCT_NAME = 2FAuth;
@@ -821,7 +821,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanep.2fauth;
 				PRODUCT_MODULE_NAME = TwoFAuth;
 				PRODUCT_NAME = 2FAuth;
@@ -846,7 +846,7 @@
 				INFOPLIST_KEY_CFBundleShortVersionString = "$(MARKETING_VERSION)";
 				INFOPLIST_KEY_CFBundleVersion = "$(CURRENT_PROJECT_VERSION)";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.ryanep.2fauth;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanep.2fauth.watchos;
 				PRODUCT_NAME = 2FAuthWatch;
 				SDKROOT = watchos;
@@ -930,9 +930,11 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -945,6 +947,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -985,9 +988,11 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -1007,6 +1012,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -1043,7 +1049,7 @@
 				INFOPLIST_KEY_CFBundleShortVersionString = "$(MARKETING_VERSION)";
 				INFOPLIST_KEY_CFBundleVersion = "$(CURRENT_PROJECT_VERSION)";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.ryanep.2fauth;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanep.2fauth.watchos;
 				PRODUCT_NAME = 2FAuthWatch;
 				SDKROOT = watchos;
