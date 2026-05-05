@@ -17,7 +17,6 @@
 "accounts.empty.message.search" = "No accounts match your search.";
 "accounts.unknown_service" = "Unknown Service";
 "accounts.otp.unsupported" = "Unsupported OTP type";
-"accounts.button.next" = "Next";
 "accounts.seconds_remaining" = "%ds";
 
 "settings.title" = "Settings";
