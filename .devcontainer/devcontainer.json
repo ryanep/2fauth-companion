@@ -1,0 +1,11 @@
+{
+  "name": "@ryanep/2fauth-companion-devcontainer",
+  "updateRemoteUserUID": true,
+  "remoteUser": "vscode",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "features": {
+    "ghcr.io/devcontainers-extra/features/opencode:1.0.0": {
+      "version": "latest"
+    }
+  }
+}
