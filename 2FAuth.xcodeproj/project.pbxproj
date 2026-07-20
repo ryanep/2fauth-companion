@@ -789,7 +789,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanep.2fauth;
 				PRODUCT_MODULE_NAME = TwoFAuth;
 				PRODUCT_NAME = 2FAuth;
@@ -821,7 +821,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanep.2fauth;
 				PRODUCT_MODULE_NAME = TwoFAuth;
 				PRODUCT_NAME = 2FAuth;
@@ -846,7 +846,7 @@
 				INFOPLIST_KEY_CFBundleShortVersionString = "$(MARKETING_VERSION)";
 				INFOPLIST_KEY_CFBundleVersion = "$(CURRENT_PROJECT_VERSION)";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.ryanep.2fauth;
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanep.2fauth.watchos;
 				PRODUCT_NAME = 2FAuthWatch;
 				SDKROOT = watchos;
@@ -1049,7 +1049,7 @@
 				INFOPLIST_KEY_CFBundleShortVersionString = "$(MARKETING_VERSION)";
 				INFOPLIST_KEY_CFBundleVersion = "$(CURRENT_PROJECT_VERSION)";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.ryanep.2fauth;
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanep.2fauth.watchos;
 				PRODUCT_NAME = 2FAuthWatch;
 				SDKROOT = watchos;
