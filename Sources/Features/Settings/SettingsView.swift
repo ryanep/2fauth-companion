@@ -2,6 +2,11 @@ import Foundation
 import SwiftUI
 
 struct SettingsView: View {
+    private static let issueURL = URL(string: "https://github.com/ryanep/2fauth-companion/issues/new")!
+    private static let supportEmailURL = URL(
+        string: "mailto:github@mailvisor.org?subject=2FAuth%20Companion%20Support"
+    )!
+
     @EnvironmentObject private var appModel: AppModel
     @State private var showingLogoutConfirmation = false
     private static let lastSyncFormatter: DateFormatter = {
@@ -62,6 +67,14 @@ struct SettingsView: View {
             Section("settings.section.sync") {
                 settingsRow(label: String(localized: "settings.server_url.label"), value: serverURLText, identifier: "settings.server_url")
                 settingsRow(label: String(localized: "settings.last_sync.label"), value: lastSuccessfulSyncText, identifier: "settings.last_sync")
+            }
+
+            Section("settings.section.support") {
+                Link("settings.support.issue", destination: Self.issueURL)
+                    .accessibilityIdentifier("settings.support.issue")
+
+                Link("settings.support.email", destination: Self.supportEmailURL)
+                    .accessibilityIdentifier("settings.support.email")
             }
 
             Section("settings.section.session") {

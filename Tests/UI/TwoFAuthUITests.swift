@@ -266,6 +266,14 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertFalse(lastSync.label.isEmpty)
 
         XCTAssertTrue(element(in: app, identifier: "settings.auto_lock").waitForExistence(timeout: 5))
+
+        let issueLink = element(in: app, identifier: "settings.support.issue")
+        XCTAssertTrue(scrollUntilExists(issueLink, in: app))
+        XCTAssertEqual(issueLink.label, "Report an issue on GitHub")
+
+        let emailLink = element(in: app, identifier: "settings.support.email")
+        XCTAssertTrue(scrollUntilExists(emailLink, in: app))
+        XCTAssertEqual(emailLink.label, "Send an issue or feedback via email")
     }
 
     func testSettingsScreenShowsNativeFormControlsOnIPad() throws {

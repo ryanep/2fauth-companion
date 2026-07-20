@@ -38,6 +38,9 @@
 "settings.section.about" = "About";
 "settings.app_version.label" = "App Version";
 "settings.app_version.unknown" = "Unknown";
+"settings.section.support" = "Support";
+"settings.support.issue" = "Report an issue on GitHub";
+"settings.support.email" = "Send an issue or feedback via email";
 
 "lock.title" = "Unlock 2FAuth";
 "lock.button.biometric" = "Unlock with Biometrics";
