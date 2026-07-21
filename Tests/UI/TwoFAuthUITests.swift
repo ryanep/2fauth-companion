@@ -6,9 +6,18 @@ import XCTest
 
 @MainActor
 final class TwoFAuthUITests: XCTestCase {
+    private enum ScreenshotAppearance: String {
+        case light
+        case dark
+    }
+
     private struct LiveConfig: Decodable {
         let baseURL: String
         let apiToken: String
+    }
+
+    private var screenshotOutputDirectory: URL {
+        URL(fileURLWithPath: configuredScreenshotOutputDirectoryPath(), isDirectory: true)
     }
 
     private var liveConfig: LiveConfig {
@@ -353,6 +362,19 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertFalse(app.buttons["lock.unlock"].exists)
     }
 
+    func testCaptureIPhoneLoginLightScreenshot() throws { try captureLoginScreenshot(device: "iphone", appearance: .light) }
+    func testCaptureIPhoneLoginDarkScreenshot() throws { try captureLoginScreenshot(device: "iphone", appearance: .dark) }
+    func testCaptureIPhoneAccountsLightScreenshot() throws { try captureAccountsScreenshot(device: "iphone", appearance: .light) }
+    func testCaptureIPhoneAccountsDarkScreenshot() throws { try captureAccountsScreenshot(device: "iphone", appearance: .dark) }
+    func testCaptureIPhoneSettingsLightScreenshot() throws { try captureSettingsScreenshot(device: "iphone", appearance: .light) }
+    func testCaptureIPhoneSettingsDarkScreenshot() throws { try captureSettingsScreenshot(device: "iphone", appearance: .dark) }
+    func testCaptureIPadLoginLightScreenshot() throws { try captureLoginScreenshot(device: "ipad", appearance: .light) }
+    func testCaptureIPadLoginDarkScreenshot() throws { try captureLoginScreenshot(device: "ipad", appearance: .dark) }
+    func testCaptureIPadAccountsLightScreenshot() throws { try captureAccountsScreenshot(device: "ipad", appearance: .light) }
+    func testCaptureIPadAccountsDarkScreenshot() throws { try captureAccountsScreenshot(device: "ipad", appearance: .dark) }
+    func testCaptureIPadSettingsLightScreenshot() throws { try captureSettingsScreenshot(device: "ipad", appearance: .light) }
+    func testCaptureIPadSettingsDarkScreenshot() throws { try captureSettingsScreenshot(device: "ipad", appearance: .dark) }
+
     private func login(app: XCUIApplication, timeout: TimeInterval = 8) {
         let submitButton = app.buttons["login.submit"]
         XCTAssertTrue(submitButton.waitForExistence(timeout: 8))
@@ -468,5 +490,102 @@ final class TwoFAuthUITests: XCTestCase {
         }
 
         return element.exists
+    }
+
+    private func configuredScreenshotOutputDirectoryPath() -> String {
+        if let overridePath = ProcessInfo.processInfo.environment["UI_TEST_SCREENSHOT_OUTPUT_DIR"], !overridePath.isEmpty {
+            return overridePath
+        }
+
+        let repoRootURL = repositoryRootURL()
+        let generatedPathURL = repoRootURL
+            .appendingPathComponent("Tests/UI/Generated/screenshot-output-dir.txt")
+        if let configuredPath = try? String(contentsOf: generatedPathURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !configuredPath.isEmpty
+        {
+            return configuredPath
+        }
+
+        return repoRootURL
+            .appendingPathComponent(".build/review-screens", isDirectory: true)
+            .path
+    }
+
+    private func repositoryRootURL() -> URL {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+        let testsRootURL = sourceURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pathComponents = testsRootURL.pathComponents
+        let repositoryRootPath = if let worktreesIndex = pathComponents.firstIndex(of: ".worktrees"), worktreesIndex > 0 {
+            NSString.path(withComponents: Array(pathComponents.prefix(worktreesIndex)))
+        } else {
+            NSString.path(withComponents: pathComponents)
+        }
+
+        return URL(fileURLWithPath: repositoryRootPath, isDirectory: true)
+    }
+
+    private func captureLoginScreenshot(device: String, appearance: ScreenshotAppearance) throws {
+        let app = configuredApp(for: appearance)
+        if device == "ipad" {
+            try requireIPadDestination()
+        }
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launch()
+
+        XCTAssertTrue(app.buttons["login.submit"].waitForExistence(timeout: 2))
+        try saveScreenshot(app.screenshot(), filename: "\(device)-login-\(appearance.rawValue).png")
+    }
+
+    private func captureAccountsScreenshot(device: String, appearance: ScreenshotAppearance) throws {
+        let app = configuredApp(for: appearance)
+        if device == "ipad" {
+            try requireIPadDestination()
+        }
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app, timeout: 20)
+        XCTAssertTrue(element(in: app, identifier: "accounts.screen").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Amazon"].waitForExistence(timeout: 5))
+        try saveScreenshot(app.screenshot(), filename: "\(device)-accounts-\(appearance.rawValue).png")
+    }
+
+    private func captureSettingsScreenshot(device: String, appearance: ScreenshotAppearance) throws {
+        let app = configuredApp(for: appearance)
+        if device == "ipad" {
+            try requireIPadDestination()
+        }
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app, timeout: 20)
+
+        let settingsTab = element(in: app, identifier: "tab.settings")
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 5))
+        settingsTab.tap()
+
+        XCTAssertTrue(element(in: app, identifier: "settings.screen").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(in: app, identifier: "settings.app_version").waitForExistence(timeout: 5))
+        try saveScreenshot(app.screenshot(), filename: "\(device)-settings-\(appearance.rawValue).png")
+    }
+
+    private func configuredApp(for appearance: ScreenshotAppearance) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_COLOR_SCHEME"] = appearance.rawValue
+        return app
+    }
+
+    private func saveScreenshot(_ screenshot: XCUIScreenshot, filename: String) throws {
+        try FileManager.default.createDirectory(at: screenshotOutputDirectory, withIntermediateDirectories: true)
+        let fileURL = screenshotOutputDirectory.appendingPathComponent(filename)
+        try screenshot.pngRepresentation.write(to: fileURL)
     }
 }

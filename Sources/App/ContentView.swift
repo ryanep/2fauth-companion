@@ -27,6 +27,7 @@ struct ContentView: View {
                 PrivacyShieldView()
             }
         }
+        .preferredColorScheme(testPreferredColorScheme)
         .onAppear {
             previousScenePhase = scenePhase
         }
@@ -39,6 +40,21 @@ struct ContentView: View {
             }
             suppressShieldUntil = Date().addingTimeInterval(2)
         }
+    }
+
+    private var testPreferredColorScheme: ColorScheme? {
+        #if DEBUG
+            switch ProcessInfo.processInfo.environment["UI_TEST_COLOR_SCHEME"]?.lowercased() {
+            case "light":
+                return .light
+            case "dark":
+                return .dark
+            default:
+                return nil
+            }
+        #else
+            nil
+        #endif
     }
 
     private var shouldShowPrivacyShield: Bool {

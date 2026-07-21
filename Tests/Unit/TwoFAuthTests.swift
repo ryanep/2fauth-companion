@@ -291,6 +291,52 @@ final class TwoFAuthTests: XCTestCase {
         XCTAssertLessThan(syncPrepRange.lowerBound, watchAssertionRange.lowerBound)
     }
 
+    func testE2ESeedAccountsUseUniqueMatchingSecrets() throws {
+        let testsDirectoryURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let repositoryRootURL = testsDirectoryURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let scriptURL = repositoryRootURL
+            .appendingPathComponent("Scripts/e2e/local-2fauth-reset.sh")
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+
+        let fieldPattern = try NSRegularExpression(pattern: #"'secret' => '([A-Z2-7]+)',"#)
+        let uriPattern = try NSRegularExpression(pattern: #"legacy_uri'.*secret=([A-Z2-7]+)(?:&|')"#)
+        let range = NSRange(script.startIndex..., in: script)
+
+        let malformedField = "'secret' => 'JBSWY3DPEHPK3PXP'INVALID,"
+        let malformedURI = "'legacy_uri' => 'otpauth://totp/Example:user?secret=JBSWY3DPEHPK3PXP!&issuer=Example',"
+        XCTAssertEqual(
+            fieldPattern.numberOfMatches(
+                in: malformedField,
+                range: NSRange(malformedField.startIndex..., in: malformedField)
+            ),
+            0
+        )
+        XCTAssertEqual(
+            uriPattern.numberOfMatches(
+                in: malformedURI,
+                range: NSRange(malformedURI.startIndex..., in: malformedURI)
+            ),
+            0
+        )
+
+        func captures(for pattern: NSRegularExpression) -> [String] {
+            pattern.matches(in: script, range: range).compactMap { match in
+                guard let captureRange = Range(match.range(at: 1), in: script) else { return nil }
+                return String(script[captureRange])
+            }
+        }
+
+        let fieldSecrets = captures(for: fieldPattern)
+        let uriSecrets = captures(for: uriPattern)
+
+        XCTAssertEqual(fieldSecrets.count, 12)
+        XCTAssertEqual(uriSecrets.count, 12)
+        XCTAssertEqual(Set(fieldSecrets).count, 12)
+        XCTAssertEqual(uriSecrets, fieldSecrets)
+    }
+
     private func makeConfigStore(testName: String, reset: Bool = true) -> UserDefaultsAppConfigStore {
         let suiteName = "TwoFAuthTests.\(testName)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
