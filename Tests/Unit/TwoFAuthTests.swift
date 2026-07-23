@@ -263,10 +263,10 @@ final class TwoFAuthTests: XCTestCase {
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
         let buildStep = "xcodebuild build -project \"2FAuth.xcodeproj\" -scheme \"2FAuthWatch\" -destination \"platform=watchOS Simulator,id=${WATCH_SIM_ID}\" -derivedDataPath \"$WATCH_BUILD_DIR\""
         let installStep = "xcrun simctl install \"$WATCH_SIM_ID\" \"$WATCH_APP_PATH\""
-        let launchStep = "xcrun simctl launch \"$WATCH_SIM_ID\" \"com.ryanep.2fauth.watchkitapp\" >/dev/null"
-        let launchFallback = "xcrun simctl launch \"$WATCH_SIM_ID\" \"com.ryanep.2fauth.watchkitapp\" >/dev/null 2>&1 || true"
+        let launchStep = "xcrun simctl launch \"$WATCH_SIM_ID\" \"com.ryanep.2fauth.watchos\" >/dev/null"
+        let launchFallback = "xcrun simctl launch \"$WATCH_SIM_ID\" \"com.ryanep.2fauth.watchos\" >/dev/null 2>&1 || true"
         let syncPrepStep = "-only-testing:2FAuthUITests/TwoFAuthUITests/testLiveLoginPublishesWatchSyncMarker"
-        let watchAssertionStep = "xcodebuild test -project \"2FAuth.xcodeproj\" -scheme \"2FAuthWatch\" -destination \"platform=watchOS Simulator,id=${WATCH_SIM_ID}\""
+        let watchAssertionStep = "xcodebuild test-without-building -project \"2FAuth.xcodeproj\" -scheme \"2FAuthWatch\" -destination \"platform=watchOS Simulator,id=${WATCH_SIM_ID}\""
 
         guard let buildRange = script.range(of: buildStep) else {
             return XCTFail("Expected watch build step in watch-e2e-live.sh")
