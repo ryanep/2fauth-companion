@@ -99,12 +99,15 @@ screenshot-review-iphone: 2fauth-reset 2fauth-preflight
 	trap 'cleanup_status_bar 129' HUP; \
 	trap 'cleanup_status_bar 130' INT; \
 	trap 'cleanup_status_bar 143' TERM; \
-	xcrun simctl status_bar "$$IPHONE_SIM_ID" override --time "9:41"; \
-	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild test -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone" \
+	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone"; \
+	xcrun simctl status_bar "$$IPHONE_SIM_ID" override --time "9:41" --dataNetwork "wifi" --wifiMode "active" --wifiBars 3 --cellularMode "active" --cellularBars 4 --operatorName " " --batteryState "discharging" --batteryLevel 100; \
+	xcodebuild test-without-building -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone" \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneLoginLightScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneLoginDarkScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneAccountsLightScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneAccountsDarkScreenshot \
+		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneAddAccountLightScreenshot \
+		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneAddAccountDarkScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneSettingsLightScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneSettingsDarkScreenshot
 
@@ -135,12 +138,15 @@ screenshot-review-ipad: 2fauth-reset 2fauth-preflight
 	trap 'cleanup_status_bar 129' HUP; \
 	trap 'cleanup_status_bar 130' INT; \
 	trap 'cleanup_status_bar 143' TERM; \
-	xcrun simctl status_bar "$$IPAD_SIM_ID" override --time "9:41"; \
-	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild test -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad" \
+	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad"; \
+	xcrun simctl status_bar "$$IPAD_SIM_ID" override --time "9:41" --dataNetwork "wifi" --wifiMode "active" --wifiBars 3 --cellularMode "active" --cellularBars 4 --operatorName " " --batteryState "discharging" --batteryLevel 100; \
+	xcodebuild test-without-building -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad" \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadLoginLightScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadLoginDarkScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadAccountsLightScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadAccountsDarkScreenshot \
+		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadAddAccountLightScreenshot \
+		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadAddAccountDarkScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadSettingsLightScreenshot \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadSettingsDarkScreenshot
 

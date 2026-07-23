@@ -384,12 +384,16 @@ final class TwoFAuthUITests: XCTestCase {
     func testCaptureIPhoneLoginDarkScreenshot() throws { try captureLoginScreenshot(device: "iphone", appearance: .dark) }
     func testCaptureIPhoneAccountsLightScreenshot() throws { try captureAccountsScreenshot(device: "iphone", appearance: .light) }
     func testCaptureIPhoneAccountsDarkScreenshot() throws { try captureAccountsScreenshot(device: "iphone", appearance: .dark) }
+    func testCaptureIPhoneAddAccountLightScreenshot() throws { try captureAddAccountScreenshot(device: "iphone", appearance: .light) }
+    func testCaptureIPhoneAddAccountDarkScreenshot() throws { try captureAddAccountScreenshot(device: "iphone", appearance: .dark) }
     func testCaptureIPhoneSettingsLightScreenshot() throws { try captureSettingsScreenshot(device: "iphone", appearance: .light) }
     func testCaptureIPhoneSettingsDarkScreenshot() throws { try captureSettingsScreenshot(device: "iphone", appearance: .dark) }
     func testCaptureIPadLoginLightScreenshot() throws { try captureLoginScreenshot(device: "ipad", appearance: .light) }
     func testCaptureIPadLoginDarkScreenshot() throws { try captureLoginScreenshot(device: "ipad", appearance: .dark) }
     func testCaptureIPadAccountsLightScreenshot() throws { try captureAccountsScreenshot(device: "ipad", appearance: .light) }
     func testCaptureIPadAccountsDarkScreenshot() throws { try captureAccountsScreenshot(device: "ipad", appearance: .dark) }
+    func testCaptureIPadAddAccountLightScreenshot() throws { try captureAddAccountScreenshot(device: "ipad", appearance: .light) }
+    func testCaptureIPadAddAccountDarkScreenshot() throws { try captureAddAccountScreenshot(device: "ipad", appearance: .dark) }
     func testCaptureIPadSettingsLightScreenshot() throws { try captureSettingsScreenshot(device: "ipad", appearance: .light) }
     func testCaptureIPadSettingsDarkScreenshot() throws { try captureSettingsScreenshot(device: "ipad", appearance: .dark) }
 
@@ -593,6 +597,29 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertTrue(element(in: app, identifier: "settings.screen").waitForExistence(timeout: 5))
         XCTAssertTrue(element(in: app, identifier: "settings.app_version").waitForExistence(timeout: 5))
         try saveScreenshot(app.screenshot(), filename: "\(device)-settings-\(appearance.rawValue).png")
+    }
+
+    private func captureAddAccountScreenshot(device: String, appearance: ScreenshotAppearance) throws {
+        let app = configuredApp(for: appearance)
+        if device == "ipad" {
+            try requireIPadDestination()
+        }
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launchEnvironment["UI_TEST_SCANNED_OTP_URI"] =
+            "otpauth://totp/Example:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example&algorithm=SHA1&digits=6&period=30"
+        app.launch()
+
+        login(app: app, timeout: 20)
+
+        let addButton = app.buttons["accounts.add"]
+        XCTAssertTrue(addButton.waitForExistence(timeout: 5))
+        addButton.tap()
+
+        let serviceField = app.textFields["add_account.service"]
+        XCTAssertTrue(serviceField.waitForExistence(timeout: 20))
+        try saveScreenshot(app.screenshot(), filename: "\(device)-add-account-\(appearance.rawValue).png")
     }
 
     private func configuredApp(for appearance: ScreenshotAppearance) -> XCUIApplication {
