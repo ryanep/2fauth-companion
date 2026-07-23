@@ -13,6 +13,55 @@ enum SessionState: Equatable {
     case reloginRequired
 }
 
+struct AddAccountPreview: Equatable {
+    let service: String?
+    let account: String
+    let icon: String?
+    let otpType: String
+    let digits: Int
+    let period: Int
+    let algorithm: String
+    let secret: String
+}
+
+enum AddAccountError: Error, Equatable, LocalizedError {
+    case invalidURI
+    case unsupportedOTPType
+    case authenticationRequired
+    case permissionDenied
+    case validation
+    case network(String)
+    case server(Int)
+    case invalidResponse
+    case creationOutcomeUnknown
+    case createdButNotCached
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURI:
+            String(localized: "add_account.error.invalid_uri")
+        case .unsupportedOTPType:
+            String(localized: "add_account.error.unsupported_type")
+        case .authenticationRequired:
+            String(localized: "add_account.error.authentication_required")
+        case .permissionDenied:
+            String(localized: "add_account.error.permission_denied")
+        case .validation:
+            String(localized: "add_account.error.validation")
+        case .network(let reason):
+            String.localizedStringWithFormat(String(localized: "add_account.error.network"), reason)
+        case .server(let statusCode):
+            String.localizedStringWithFormat(String(localized: "add_account.error.server"), statusCode)
+        case .invalidResponse:
+            String(localized: "add_account.error.invalid_response")
+        case .creationOutcomeUnknown:
+            String(localized: "add_account.error.creation_outcome_unknown")
+        case .createdButNotCached:
+            String(localized: "add_account.error.created_not_cached")
+        }
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var sessionState: SessionState = .loggedOut
@@ -38,6 +87,8 @@ final class AppModel: ObservableObject {
     private var unlockedState: SessionState = .unlocked
     private var backgroundedAt: Date?
     private var isUnlockInProgress = false
+    private var isForegroundSyncActive = false
+    private var foregroundSyncWaiters: [CheckedContinuation<Void, Never>] = []
 
     var requiresOnboarding: Bool {
         return !hasSessionConfiguration
@@ -189,12 +240,20 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func syncNow() async {
+    @discardableResult
+    func syncNow() async -> SyncResult? {
+        await acquireForegroundSync()
+        defer { releaseForegroundSync() }
+
+        guard !Task.isCancelled else {
+            return nil
+        }
+
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
             if sessionState == .unlocked || sessionState == .degradedOffline {
                 sessionState = .loggedOut
             }
-            return
+            return nil
         }
 
         isSyncing = true
@@ -232,6 +291,7 @@ final class AppModel: ObservableObject {
                 reason
             )
         }
+        return result
     }
 
     func logout() async {
@@ -310,6 +370,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func acquireForegroundSync() async {
+        if !isForegroundSyncActive {
+            isForegroundSyncActive = true
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            foregroundSyncWaiters.append(continuation)
+        }
+    }
+
+    private func releaseForegroundSync() {
+        guard !foregroundSyncWaiters.isEmpty else {
+            isForegroundSyncActive = false
+            return
+        }
+
+        foregroundSyncWaiters.removeFirst().resume()
+    }
+
     private func enforceReloginWipe() async {
         sessionState = .reloginRequired
         await wipeAllData(requireRelogin: true)
@@ -343,6 +423,198 @@ final class AppModel: ObservableObject {
 }
 
 extension AppModel {
+    func previewAccount(uri input: String) async throws -> AddAccountPreview {
+        let uri: String
+        do {
+            uri = try OTPAuthURIValidator.validate(input)
+        } catch OTPAuthURIValidationError.unsupportedOTPType {
+            throw AddAccountError.unsupportedOTPType
+        } catch {
+            throw AddAccountError.invalidURI
+        }
+
+        guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
+            throw AddAccountError.authenticationRequired
+        }
+
+        do {
+            let customOTP = OTPAuthURIValidator.isSteamAccount(uri) ? "steamtotp" : nil
+            let account = try await repository.previewAccount(
+                baseURL: baseURL,
+                apiKey: apiKey,
+                uri: uri,
+                customOTP: customOTP
+            )
+            guard
+                let secret = account.secret,
+                !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                account.period ?? 30 > 0
+            else {
+                throw AddAccountError.invalidResponse
+            }
+
+            let isSteam = normalizedOTPType(account.otpType) == "steamtotp"
+            return AddAccountPreview(
+                service: account.service,
+                account: account.account,
+                icon: account.icon,
+                otpType: account.otpType,
+                digits: isSteam ? 5 : account.digits?.rawValue ?? OTPDigits.default.rawValue,
+                period: account.period ?? 30,
+                algorithm: account.algorithm?.rawValue ?? OTPAlgorithm.default.rawValue,
+                secret: secret
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw await addAccountError(from: error)
+        }
+    }
+
+    func addAccount(preview: AddAccountPreview, service: String?, account: String) async throws {
+        guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
+            throw AddAccountError.authenticationRequired
+        }
+
+        let accountName = account.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !accountName.isEmpty, !preview.secret.isEmpty else {
+            throw AddAccountError.validation
+        }
+
+        let serviceName = service?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestBody = AccountCreationRequest(
+            service: serviceName?.isEmpty == true ? nil : serviceName,
+            account: accountName,
+            icon: preview.icon,
+            otpType: preview.otpType,
+            secret: preview.secret,
+            digits: preview.digits,
+            algorithm: preview.algorithm,
+            period: preview.period
+        )
+
+        do {
+            try await repository.createAccount(
+                context: modelContext,
+                baseURL: baseURL,
+                apiKey: apiKey,
+                requestBody: requestBody
+            )
+            _ = await refreshAfterAccountCreation()
+        } catch AccountRepositoryError.createdButNotCached {
+            if await refreshAfterAccountCreation() {
+                return
+            }
+            throw AddAccountError.createdButNotCached
+        } catch {
+            throw await createAccountError(from: error)
+        }
+    }
+
+    func generateCode(for preview: AddAccountPreview, at date: Date = Date()) -> String? {
+        switch normalizedOTPType(preview.otpType) {
+        case "totp":
+            guard
+                let digits = OTPDigits(rawValue: preview.digits),
+                let algorithm = OTPAlgorithm(value: preview.algorithm),
+                preview.period > 0
+            else {
+                return nil
+            }
+            return TOTPGenerator.generate(
+                secret: preview.secret,
+                digits: digits,
+                period: preview.period,
+                algorithm: algorithm,
+                at: date
+            )
+        case "steamtotp":
+            guard preview.period > 0 else { return nil }
+            return SteamGuardGenerator.generate(secret: preview.secret, period: preview.period, at: date)
+        default:
+            return nil
+        }
+    }
+}
+
+extension AppModel {
+    fileprivate func refreshAfterAccountCreation() async -> Bool {
+        guard let result = await syncNow() else {
+            return false
+        }
+
+        switch result {
+        case .success:
+            return true
+        case .transient:
+            scheduleBackgroundRefresh()
+            pushWatchSnapshot()
+            return false
+        case .unauthorized:
+            return false
+        }
+    }
+
+    fileprivate func addAccountError(from error: any Error) async -> AddAccountError {
+        switch error {
+        case AccountRepositoryError.unsupportedOTPType:
+            return .unsupportedOTPType
+        case AccountRepositoryError.createdButNotCached:
+            scheduleBackgroundRefresh()
+            return .createdButNotCached
+        case APIError.unauthorized:
+            ErrorReporter.report("add_account.unauthorized")
+            await enforceReloginWipe()
+            return .authenticationRequired
+        case APIError.forbidden:
+            ErrorReporter.report("add_account.forbidden")
+            return .permissionDenied
+        case APIError.validation:
+            return .validation
+        case APIError.server(let statusCode):
+            ErrorReporter.report("add_account.server_error", metadata: ["status": String(statusCode)])
+            return .server(statusCode)
+        case APIError.transport(let reason):
+            ErrorReporter.report("add_account.transport_error")
+            return .network(reason)
+        case APIError.invalidURL, APIError.decoding:
+            ErrorReporter.report("add_account.invalid_response")
+            return .invalidResponse
+        default:
+            ErrorReporter.report("add_account.generic_error")
+            return .invalidResponse
+        }
+    }
+
+    fileprivate func createAccountError(from error: any Error) async -> AddAccountError {
+        if error is CancellationError {
+            _ = await refreshAfterAccountCreationWithoutInheritedCancellation()
+            ErrorReporter.report("add_account.creation_outcome_unknown")
+            return .creationOutcomeUnknown
+        }
+
+        switch error {
+        case AccountRepositoryError.unsupportedOTPType:
+            _ = await refreshAfterAccountCreation()
+            return .createdButNotCached
+        case APIError.transport, APIError.decoding, APIError.server:
+            _ = await refreshAfterAccountCreation()
+            ErrorReporter.report("add_account.creation_outcome_unknown")
+            return .creationOutcomeUnknown
+        default:
+            return await addAccountError(from: error)
+        }
+    }
+
+    private func refreshAfterAccountCreationWithoutInheritedCancellation() async -> Bool {
+        await Task { @MainActor [weak self] in
+            guard let self else { return false }
+            return await refreshAfterAccountCreation()
+        }.value
+    }
+}
+
+extension AppModel {
     func generateTOTP(for account: AccountEntity, at date: Date = Date()) -> String? {
         guard normalizedOTPType(account.otpType) == "totp", let encryptedSecret = account.encryptedSecret else {
             return nil
@@ -351,9 +623,16 @@ extension AppModel {
         do {
             let secret = try repository.decryptSecret(encryptedSecret)
             let digits = OTPDigits(rawValue: account.digits ?? OTPDigits.default.rawValue) ?? OTPDigits.default
-            let algorithm = OTPAlgorithm(value: account.algorithm ?? OTPAlgorithm.default.rawValue) ?? OTPAlgorithm.default
+            let algorithm =
+                OTPAlgorithm(value: account.algorithm ?? OTPAlgorithm.default.rawValue) ?? OTPAlgorithm.default
             let period = account.period ?? 30
-            return TOTPGenerator.generate(secret: secret, digits: digits, period: period, algorithm: algorithm, at: date)
+            return TOTPGenerator.generate(
+                secret: secret,
+                digits: digits,
+                period: period,
+                algorithm: algorithm,
+                at: date
+            )
         } catch {
             return nil
         }

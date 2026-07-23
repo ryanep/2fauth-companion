@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 
 enum OTPDigits: Int, CaseIterable, Codable {
+    case five = 5
     case six = 6
     case seven = 7
     case eight = 8

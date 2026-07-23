@@ -11,35 +11,50 @@ struct AccountsView: View {
     @EnvironmentObject private var appModel: AppModel
     @Query private var accounts: [AccountEntity]
     @State private var searchText: String = ""
+    @State private var isAddingAccount = false
 
     var body: some View {
         content
-        .overlay(alignment: .topLeading) {
-            accessibilityMarker("accounts.screen")
-        }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .overlay {
-            if filteredAccounts.isEmpty {
-                ContentUnavailableView(
-                    "accounts.empty.title",
-                    systemImage: "shield",
-                    description: Text(emptyStateMessage)
-                )
+            .overlay(alignment: .topLeading) {
+                accessibilityMarker("accounts.screen")
             }
-        }
-        .navigationTitle("accounts.title")
-        .searchable(text: $searchText, prompt: Text("accounts.search.prompt"))
-        .safeAreaInset(edge: .bottom) {
-            if let syncMessage = appModel.syncMessage {
-                Text(syncMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .overlay {
+                if filteredAccounts.isEmpty {
+                    ContentUnavailableView(
+                        "accounts.empty.title",
+                        systemImage: "shield",
+                        description: Text(emptyStateMessage)
+                    )
+                }
             }
-        }
-        .task {
-            await appModel.syncNow()
-        }
+            .navigationTitle("accounts.title")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isAddingAccount = true
+                    } label: {
+                        Label("add_account.button.open", systemImage: "plus")
+                    }
+                    .accessibilityIdentifier("accounts.add")
+                }
+            }
+            .searchable(text: $searchText, prompt: Text("accounts.search.prompt"))
+            .sheet(isPresented: $isAddingAccount) {
+                AddAccountView()
+                    .environmentObject(appModel)
+            }
+            .safeAreaInset(edge: .bottom) {
+                if let syncMessage = appModel.syncMessage {
+                    Text(syncMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 8)
+                }
+            }
+            .task {
+                await appModel.syncNow()
+            }
     }
 
     @ViewBuilder
@@ -93,13 +108,15 @@ struct AccountsView: View {
             return sortAccountsForDisplay(accounts)
         }
 
-        return sortAccountsForDisplay(accounts.filter { account in
-            let accountName = account.account.localizedLowercase
-            let serviceName = (account.service ?? "").localizedLowercase
-            let otpType = account.otpType.localizedLowercase
-            let term = query.localizedLowercase
-            return accountName.contains(term) || serviceName.contains(term) || otpType.contains(term)
-        })
+        return sortAccountsForDisplay(
+            accounts.filter { account in
+                let accountName = account.account.localizedLowercase
+                let serviceName = (account.service ?? "").localizedLowercase
+                let otpType = account.otpType.localizedLowercase
+                let term = query.localizedLowercase
+                return accountName.contains(term) || serviceName.contains(term) || otpType.contains(term)
+            }
+        )
     }
 
     private var emptyStateMessage: String {
