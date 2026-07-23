@@ -49,9 +49,12 @@ func referencedKeys(in source: String, knownPrefixes: Set<String>) -> Set<String
         #"SecureField\(\s*"([^"]+)"\s*[,\)]"#,
         #"Picker\(\s*"([^"]+)"\s*[,\)]"#,
         #"LabeledContent\(\s*"([^"]+)"\s*[,\)]"#,
+        #"Link\(\s*"([^"]+)"\s*[,\)]"#,
+        #"ProgressView\(\s*"([^"]+)"\s*\)"#,
         #"ContentUnavailableView\(\s*"([^"]+)"\s*[,\)]"#,
         #"\.navigationTitle\(\s*"([^"]+)"\s*\)"#,
-        #"\.alert\(\s*"([^"]+)"\s*[,\)]"#
+        #"\.alert\(\s*"([^"]+)"\s*[,\)]"#,
+        #"\.accessibilityLabel\(\s*"([^"]+)"\s*\)"#
     ]
 
     var allLiterals: Set<String> = []

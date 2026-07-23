@@ -7,6 +7,11 @@ enum SyncResult {
     case transient(String)
 }
 
+enum AccountRepositoryError: Error {
+    case unsupportedOTPType
+    case createdButNotCached
+}
+
 @MainActor
 final class DefaultAccountRepository: AccountRepository {
     private let apiClient: any APIClient
@@ -53,6 +58,36 @@ final class DefaultAccountRepository: AccountRepository {
         } catch {
             ErrorReporter.report("repository.sync_generic_error")
             return .transient(String(localized: "sync.error.generic_failed"))
+        }
+    }
+
+    func previewAccount(baseURL: URL, apiKey: String, uri: String, customOTP: String?) async throws -> APIAccount {
+        let account = try await apiClient.previewAccount(
+            baseURL: baseURL,
+            apiKey: apiKey,
+            uri: uri,
+            customOTP: customOTP
+        )
+        guard isSupportedOTPType(account.otpType) else {
+            throw AccountRepositoryError.unsupportedOTPType
+        }
+        return account
+    }
+
+    func createAccount(
+        context: ModelContext,
+        baseURL: URL,
+        apiKey: String,
+        requestBody: AccountCreationRequest
+    ) async throws {
+        let account = try await apiClient.createAccount(baseURL: baseURL, apiKey: apiKey, requestBody: requestBody)
+        guard isSupportedOTPType(account.otpType) else {
+            throw AccountRepositoryError.unsupportedOTPType
+        }
+        do {
+            try upsert(remoteAccount: account, context: context)
+        } catch {
+            throw AccountRepositoryError.createdButNotCached
         }
     }
 
@@ -106,6 +141,27 @@ final class DefaultAccountRepository: AccountRepository {
         if hasAnyMutation {
             try context.save()
         }
+    }
+
+    private func upsert(remoteAccount: APIAccount, context: ModelContext) throws {
+        guard
+            let id = remoteAccount.id,
+            let secret = remoteAccount.secret,
+            !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw APIError.decoding
+        }
+
+        let existing = try context.fetch(FetchDescriptor<AccountEntity>())
+        let now = Date()
+        if let entity = existing.first(where: { $0.remoteID == id }) {
+            applyMetadata(from: remoteAccount, to: entity)
+            entity.encryptedSecret = try cryptoStore.encrypt(secret)
+            entity.updatedAt = now
+        } else {
+            context.insert(try makeEntity(for: remoteAccount, id: id, updatedAt: now))
+        }
+        try context.save()
     }
 
     private func makeEntity(for remote: APIAccount, id: Int, updatedAt: Date) throws -> AccountEntity {
@@ -169,5 +225,14 @@ final class DefaultAccountRepository: AccountRepository {
         }
 
         return localSecret != remoteSecret
+    }
+
+    private func normalizedOTPType(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func isSupportedOTPType(_ value: String) -> Bool {
+        let normalized = normalizedOTPType(value)
+        return normalized == "totp" || normalized == "steamtotp"
     }
 }

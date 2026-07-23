@@ -31,7 +31,12 @@ ui-test-live: 2fauth-reset 2fauth-preflight
 	UI_TEST_BASE_URL="$${UI_TEST_BASE_URL:-$(TWOFAUTH_BASE_URL)}"; \
 	UI_TEST_API_TOKEN="$${UI_TEST_API_TOKEN:-$$(APP_KEY="$(APP_KEY)" TWOFAUTH_BASE_URL="$(TWOFAUTH_BASE_URL)" TWOFAUTH_PORT="$(TWOFAUTH_PORT)" ./Scripts/e2e/local-2fauth-token.sh | tr -d '\r\n')}"; \
 	printf '{"baseURL":"%s","apiToken":"%s"}\n' "$$UI_TEST_BASE_URL" "$$UI_TEST_API_TOKEN" > "Tests/UI/Generated/live-config.json"; \
-	xcodebuild test -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "$${XCODE_DESTINATION}" -only-testing:2FAuthUITests
+	xcodebuild test -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "$${XCODE_DESTINATION}" \
+		-only-testing:2FAuthUITests \
+		-skip-testing:2FAuthUITests/TwoFAuthUITests/testLiveBackendAddsTOTPAccount \
+		-skip-testing:2FAuthUITests/TwoFAuthUITests/testLiveLoginPublishesWatchSyncMarker; \
+	xcodebuild test -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "$${XCODE_DESTINATION}" \
+		-only-testing:2FAuthUITests/TwoFAuthUITests/testLiveBackendAddsTOTPAccount
 
 ui-test-live-ipad: 2fauth-reset 2fauth-preflight
 	@set -eu; \

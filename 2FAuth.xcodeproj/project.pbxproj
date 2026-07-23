@@ -16,8 +16,10 @@
 		30C73517B6DCFCF4C0D12987 /* UserDefaultsAppConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FCF882084E8DD2A1D1401E /* UserDefaultsAppConfigStore.swift */; };
 		30F2D428B1608D6BDD05558B /* live-config.json in Resources */ = {isa = PBXBuildFile; fileRef = EBE037C7BDAFB00A13BB26D7 /* live-config.json */; };
 		3727079AEE97EC1799FBCC86 /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 087FB4E6A32C82FFEE3CBBAF /* APIClientTests.swift */; };
+		37B33E510000000000000001 /* AppModelAddAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37B33E510000000000000002 /* AppModelAddAccountTests.swift */; };
 		3A1AC74D3528D44815A1EA7E /* OTPGeneratorCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 290D6BC3334F86F3B958A070 /* OTPGeneratorCore.swift */; };
 		3CB581A722D0C2FF5B4636C9 /* WatchAccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D6ED37904C88BDC3F242A56 /* WatchAccountStore.swift */; };
+		3D3484718956AB5B9AB193C4 /* QRCodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B4479DA16277DD3A0027A33 /* QRCodeScannerView.swift */; };
 		42FD17AAF753A4DEA39ADD15 /* AccountRepositoryProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8E1A6AB65B2F40C90EF0CAD /* AccountRepositoryProtocol.swift */; };
 		44E2A903D819540F1569D30D /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 2AF7393C66AB8BD7B970D34F /* InfoPlist.strings */; };
 		46E68639B99334878EC11A05 /* TwoFAuthWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34009EA368EA357BA90822C /* TwoFAuthWatchApp.swift */; };
@@ -42,6 +44,7 @@
 		8958E09487AAAA3F5A6A057F /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 370BB75282708FD814B967D0 /* MainTabView.swift */; };
 		8B0D11B46331CBEBD7986685 /* AccountRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A1472BBC4ED57947ADE60 /* AccountRepositoryTests.swift */; };
 		8C823AA4AA916D6ACE435A81 /* AESGCMCryptoStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F89371A551AF85C481E99A /* AESGCMCryptoStore.swift */; };
+		8D931EEE071E7F3ABE47286A /* AddAccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF662DCFA6ED352DA71DE80E /* AddAccountView.swift */; };
 		9245C6533838EAC982F555B7 /* WatchSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC2DB39724529FE30DAF005 /* WatchSyncManager.swift */; };
 		A2BE6DDEB029580485184A71 /* TwoFAuthUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74FB010349A7BF026CA7D3B0 /* TwoFAuthUITests.swift */; };
 		A5A58C6C3F9C4E1FADEB461B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA68A978214E94768AF1944D /* ContentView.swift */; };
@@ -50,6 +53,7 @@
 		AEEB6CDAF9ABF05AD1DC1058 /* TwoFAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171B81C8A54E36C07013E50A /* TwoFAuthTests.swift */; };
 		AF896D55046649305031F2C4 /* WatchIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 29F702839F0092BDEC24BBD2 /* WatchIcon.icon */; };
 		B4454765E8FB9E4C6C6DE91E /* watch-sync-payload.json in Resources */ = {isa = PBXBuildFile; fileRef = 716AA7C9094209C1E94ED051 /* watch-sync-payload.json */; };
+		B8A80587DBBCD65FAA6814B1 /* OTPAuthURIValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D99EF35F9A241D2CBE41BA /* OTPAuthURIValidator.swift */; };
 		C02463C0F7ED3C09A0EDEF96 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEE99819453A6510C0DDAA4A /* Models.swift */; };
 		CE6D3E0153A5F9520EEF71ED /* Base32.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E082CCBF54710F464FF9BC0 /* Base32.swift */; };
 		D0295EFD4D16A5A9C95E9F8F /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = F9F4205587AC95CC8EAE6F49 /* Localizable.strings */; };
@@ -117,6 +121,7 @@
 
 /* Begin PBXFileReference section */
 		087FB4E6A32C82FFEE3CBBAF /* APIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
+		37B33E510000000000000002 /* AppModelAddAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelAddAccountTests.swift; sourceTree = "<group>"; };
 		09673ACF67CB7227E8D7DA2A /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		0AD8271C312CA377C1A0469A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		0BAF12A56193AD47AAC62C12 /* ErrorReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorReporter.swift; sourceTree = "<group>"; };
@@ -141,6 +146,7 @@
 		60D05B1429B1179CA17BB6D4 /* TOTPGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOTPGenerator.swift; sourceTree = "<group>"; };
 		652921529D27032F1FD16569 /* TransportURLValidatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportURLValidatorTests.swift; sourceTree = "<group>"; };
 		69CFB693FCAAA6064A7034E0 /* KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSecretStore.swift; sourceTree = "<group>"; };
+		6B4479DA16277DD3A0027A33 /* QRCodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeScannerView.swift; sourceTree = "<group>"; };
 		6E5A1472BBC4ED57947ADE60 /* AccountRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountRepositoryTests.swift; sourceTree = "<group>"; };
 		716AA7C9094209C1E94ED051 /* watch-sync-payload.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "watch-sync-payload.json"; sourceTree = "<group>"; };
 		74FB010349A7BF026CA7D3B0 /* TwoFAuthUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFAuthUITests.swift; sourceTree = "<group>"; };
@@ -148,6 +154,7 @@
 		7586A01A7FA4BA98A17E55B1 /* 2FAuthUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = 2FAuthUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		784F9E86DAB65F8D62E63665 /* WatchSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSecretStore.swift; sourceTree = "<group>"; };
 		7B1262A5A476FCABCC3ECABE /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		81D99EF35F9A241D2CBE41BA /* OTPAuthURIValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OTPAuthURIValidator.swift; sourceTree = "<group>"; };
 		85453843E9453C29F9A2895F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8E082CCBF54710F464FF9BC0 /* Base32.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base32.swift; sourceTree = "<group>"; };
 		92C22277E9F898A51605806B /* AccountRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountRepository.swift; sourceTree = "<group>"; };
@@ -157,6 +164,7 @@
 		A01AF6BE8A6607CF7863EBD5 /* AppVersionFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersionFormatter.swift; sourceTree = "<group>"; };
 		A07BB1C60979F2372F67081F /* WatchAccountsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAccountsView.swift; sourceTree = "<group>"; };
 		A7544FA082843A583DE5526F /* PrivacyShieldView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyShieldView.swift; sourceTree = "<group>"; };
+		AF662DCFA6ED352DA71DE80E /* AddAccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAccountView.swift; sourceTree = "<group>"; };
 		B34009EA368EA357BA90822C /* TwoFAuthWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFAuthWatchApp.swift; sourceTree = "<group>"; };
 		B951A99C8E36A6429EA25257 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		C306985A647D7EDEF7FC1E58 /* CryptoStoreProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoStoreProtocol.swift; sourceTree = "<group>"; };
@@ -382,6 +390,7 @@
 			children = (
 				6E5A1472BBC4ED57947ADE60 /* AccountRepositoryTests.swift */,
 				087FB4E6A32C82FFEE3CBBAF /* APIClientTests.swift */,
+				37B33E510000000000000002 /* AppModelAddAccountTests.swift */,
 				52D84EB658859103F6C6C6AB /* AppModelStateMachineTests.swift */,
 				3B811F676470859364AC77D7 /* AppModelTransportPolicyTests.swift */,
 				E70CF1B7F3AA3C29BFF14C45 /* SecurityStoreTests.swift */,
@@ -425,6 +434,9 @@
 			isa = PBXGroup;
 			children = (
 				9D618BF64A7D0ACB43D222E0 /* AccountsView.swift */,
+				AF662DCFA6ED352DA71DE80E /* AddAccountView.swift */,
+				81D99EF35F9A241D2CBE41BA /* OTPAuthURIValidator.swift */,
+				6B4479DA16277DD3A0027A33 /* QRCodeScannerView.swift */,
 			);
 			path = Accounts;
 			sourceTree = "<group>";
@@ -639,6 +651,7 @@
 				FA826BFC2C98DE0CD6A361B1 /* AccountRepository.swift in Sources */,
 				42FD17AAF753A4DEA39ADD15 /* AccountRepositoryProtocol.swift in Sources */,
 				22E9C74C3B07E93C86D8ADA6 /* AccountsView.swift in Sources */,
+				8D931EEE071E7F3ABE47286A /* AddAccountView.swift in Sources */,
 				F72F7B04D77F3C6B6DCFB66D /* AppConfigStoreProtocol.swift in Sources */,
 				670BEE221C07FDF27EBCF7A6 /* AppModel.swift in Sources */,
 				FA6F159D3CD765AD722BD838 /* AppVersionFormatter.swift in Sources */,
@@ -653,8 +666,10 @@
 				5B4716446D0345CFA4D04B88 /* LoginView.swift in Sources */,
 				8958E09487AAAA3F5A6A057F /* MainTabView.swift in Sources */,
 				C02463C0F7ED3C09A0EDEF96 /* Models.swift in Sources */,
+				B8A80587DBBCD65FAA6814B1 /* OTPAuthURIValidator.swift in Sources */,
 				0326345C9A5F080542ACD3B7 /* OTPGeneratorCore.swift in Sources */,
 				E0A3F02B8CF1678273F1F480 /* PrivacyShieldView.swift in Sources */,
+				3D3484718956AB5B9AB193C4 /* QRCodeScannerView.swift in Sources */,
 				69465A8765298C095E5F8999 /* SecretStoreProtocol.swift in Sources */,
 				4C1E7CB3BB23647B57B7E425 /* SettingsView.swift in Sources */,
 				ED922707B7647AB79768AA41 /* SteamGuardGenerator.swift in Sources */,
@@ -682,6 +697,7 @@
 			files = (
 				3727079AEE97EC1799FBCC86 /* APIClientTests.swift in Sources */,
 				8B0D11B46331CBEBD7986685 /* AccountRepositoryTests.swift in Sources */,
+				37B33E510000000000000001 /* AppModelAddAccountTests.swift in Sources */,
 				E67A709CA571C7F89EA80EBA /* AppModelStateMachineTests.swift in Sources */,
 				5F3FF786683C684785BF97ED /* AppModelTransportPolicyTests.swift in Sources */,
 				AE05CAD1C53B62B89CCA5E80 /* SecurityStoreTests.swift in Sources */,

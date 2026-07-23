@@ -4,6 +4,24 @@ import XCTest
     import UIKit
 #endif
 
+private struct LiveUIAccount: Decodable {
+    let service: String?
+    let account: String
+    let otpType: String
+    let digits: Int?
+    let algorithm: String?
+    let period: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case service
+        case account
+        case otpType = "otp_type"
+        case digits
+        case algorithm
+        case period
+    }
+}
+
 @MainActor
 final class TwoFAuthUITests: XCTestCase {
     private enum ScreenshotAppearance: String {
@@ -446,8 +464,8 @@ final class TwoFAuthUITests: XCTestCase {
         app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", pattern)).firstMatch
     }
 
-    private func replaceSecureText(in element: XCUIElement, with text: String) {
-        element.tap()
+    fileprivate func replaceText(in element: XCUIElement, with text: String) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         let deleteText = String(repeating: XCUIKeyboardKey.delete.rawValue, count: 64)
         element.typeText(deleteText)
         element.typeText(text)
@@ -587,5 +605,99 @@ final class TwoFAuthUITests: XCTestCase {
         try FileManager.default.createDirectory(at: screenshotOutputDirectory, withIntermediateDirectories: true)
         let fileURL = screenshotOutputDirectory.appendingPathComponent(filename)
         try screenshot.pngRepresentation.write(to: fileURL)
+    }
+}
+
+extension TwoFAuthUITests {
+    func testLiveBackendAddsTOTPAccount() async throws {
+        let service = "E2E Added Service"
+        let account = "e2e-added-\(UUID().uuidString.lowercased())@example.com"
+        let scannedURI = "otpauth://totp/Scanned%20Service:scanned@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Scanned%20Service&algorithm=SHA1&digits=6&period=300"
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launchEnvironment["UI_TEST_SCANNED_OTP_URI"] = scannedURI
+        app.launch()
+
+        login(app: app, timeout: 20)
+
+        let addButton = app.buttons["accounts.add"]
+        XCTAssertTrue(addButton.waitForExistence(timeout: 5))
+        addButton.tap()
+
+        let serviceField = app.textFields["add_account.service"]
+        let accountField = app.textFields["add_account.account"]
+        XCTAssertTrue(serviceField.waitForExistence(timeout: 20))
+        XCTAssertTrue(accountField.waitForExistence(timeout: 5))
+        XCTAssertEqual(serviceField.value as? String, "Scanned Service")
+        XCTAssertEqual(accountField.value as? String, "scanned@example.com")
+
+        replaceText(in: serviceField, with: service)
+        replaceText(in: accountField, with: account)
+        XCTAssertEqual(serviceField.value as? String, service)
+        XCTAssertEqual(accountField.value as? String, account)
+
+        let previewCode = element(in: app, identifier: "add_account.current_code")
+        XCTAssertTrue(previewCode.waitForExistence(timeout: 5))
+        XCTAssertEqual(previewCode.value as? String, "ready")
+        let previewCodeValue = try XCTUnwrap(sixDigitCode(in: previewCode.label))
+
+        let saveButton = app.buttons["add_account.confirm"]
+        XCTAssertTrue(saveButton.isEnabled)
+        saveButton.tap()
+
+        XCTAssertTrue(scrollUntilExists(app.staticTexts[service], in: app, maxSwipes: 10))
+        XCTAssertTrue(app.staticTexts[account].waitForExistence(timeout: 5))
+
+        let savedCode = element(in: app, identifier: "account.code.service.e2e-added-service")
+        XCTAssertTrue(scrollUntilExists(savedCode, in: app, maxSwipes: 10))
+        XCTAssertNotNil(savedCode.label.range(of: "^[0-9]{6}$", options: .regularExpression))
+        XCTAssertEqual(savedCode.label, previewCodeValue)
+
+        let matchingAccounts = try await fetchLiveAccounts().filter {
+            $0.service == service && $0.account == account
+        }
+        XCTAssertEqual(matchingAccounts.count, 1)
+        let createdAccount = try XCTUnwrap(matchingAccounts.first)
+        XCTAssertEqual(createdAccount.otpType, "totp")
+        XCTAssertEqual(createdAccount.digits, 6)
+        XCTAssertEqual(createdAccount.algorithm?.lowercased(), "sha1")
+        XCTAssertEqual(createdAccount.period, 300)
+    }
+
+    private func fetchLiveAccounts() async throws -> [LiveUIAccount] {
+        guard var components = URLComponents(string: liveConfig.baseURL) else {
+            XCTFail("Invalid live backend URL")
+            return []
+        }
+
+        let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components.path = "/" + [basePath, "api/v1/twofaccounts"].filter { !$0.isEmpty }.joined(separator: "/")
+        components.queryItems = [URLQueryItem(name: "withSecret", value: "0")]
+        guard let url = components.url else {
+            XCTFail("Invalid live accounts endpoint")
+            return []
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(liveConfig.apiToken)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let response = response as? HTTPURLResponse, response.statusCode == 200 else {
+            XCTFail("Live account verification request failed")
+            return []
+        }
+
+        return try JSONDecoder().decode([LiveUIAccount].self, from: data)
+    }
+
+    private func sixDigitCode(in label: String) -> String? {
+        guard let range = label.range(of: "(^|[^0-9])([0-9]{6})([^0-9]|$)", options: .regularExpression),
+            let codeRange = label[range].range(of: "[0-9]{6}", options: .regularExpression)
+        else {
+            return nil
+        }
+        return String(label[codeRange])
     }
 }

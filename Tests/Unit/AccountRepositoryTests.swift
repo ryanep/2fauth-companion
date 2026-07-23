@@ -155,6 +155,42 @@ final class AccountRepositoryTests: XCTestCase {
         XCTAssertEqual(message, String(localized: "sync.error.generic_failed"))
     }
 
+    func testCreateAccountStoresReturnedSecretEncrypted() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let json = """
+                {"id":42,"service":"Example","account":"person@example.com","otp_type":"totp","secret":"JBSWY3DPEHPK3PXP","digits":6,"algorithm":"SHA1","period":30}
+                """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 201, httpVersion: nil, headerFields: nil)!
+            return (response, Data(json.utf8))
+        }
+
+        let container = try makeInMemoryModelContainer()
+        let context = ModelContext(container)
+        let sut = makeRepository()
+        try sut.ensureEncryptionKey()
+
+        try await sut.createAccount(
+            context: context,
+            baseURL: URL(string: "https://example.com")!,
+            apiKey: "key",
+            requestBody: AccountCreationRequest(
+                service: "Example",
+                account: "person@example.com",
+                icon: nil,
+                otpType: "totp",
+                secret: "JBSWY3DPEHPK3PXP",
+                digits: 6,
+                algorithm: "SHA1",
+                period: 30
+            )
+        )
+
+        let stored = try XCTUnwrap(context.fetch(FetchDescriptor<AccountEntity>()).first)
+        let encryptedSecret = try XCTUnwrap(stored.encryptedSecret)
+        XCTAssertNotEqual(encryptedSecret, Data("JBSWY3DPEHPK3PXP".utf8))
+        XCTAssertEqual(try sut.decryptSecret(encryptedSecret), "JBSWY3DPEHPK3PXP")
+    }
+
     private func makeRepository() -> DefaultAccountRepository {
         let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
         let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)

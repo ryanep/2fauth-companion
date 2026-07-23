@@ -50,6 +50,10 @@ Run the live UI smoke suite:
 make -f makefile ui-test-live XCODE_DESTINATION='platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4'
 ```
 
+This resets the backend once, runs the read-only UI tests first, then runs the add-account mutation test last. The created `E2E Added Service` account remains in the local backend until the next reset.
+
+The paired-Watch marker test is excluded from this ordinary phone suite and remains covered by `watch-e2e-live`.
+
 Run the dedicated iPad UI regressions against the live backend:
 
 ```bash
