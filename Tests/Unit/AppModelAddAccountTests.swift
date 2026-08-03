@@ -43,7 +43,8 @@ private final class AddAccountTestRepository: AccountRepository {
         context: ModelContext,
         baseURL: URL,
         apiKey: String,
-        includeSecrets: Bool
+        includeSecrets: Bool,
+        isCurrentSession: @escaping () -> Bool
     ) async -> SyncResult {
         syncCallCount += 1
         syncSawCancellation = syncSawCancellation || Task.isCancelled

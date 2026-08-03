@@ -8,6 +8,7 @@ final class UserDefaultsAppConfigStore: AppConfigStore {
         static let autoLockTimeoutSeconds = "config.autoLockTimeoutSeconds"
         static let lastSuccessfulSyncAt = "config.lastSuccessfulSyncAt"
         static let transportPolicy = "config.transportPolicy"
+        static let sessionRevision = "config.sessionRevision"
     }
 
     static let backgroundSyncIntervalMinutes = 15
@@ -63,6 +64,11 @@ final class UserDefaultsAppConfigStore: AppConfigStore {
         set {
             defaults.set(newValue.rawValue, forKey: Keys.transportPolicy)
         }
+    }
+
+    var sessionRevision: Int {
+        get { defaults.integer(forKey: Keys.sessionRevision) }
+        set { defaults.set(newValue, forKey: Keys.sessionRevision) }
     }
 
     static func normalizeAutoLockTimeout(_ value: Int) -> Int {

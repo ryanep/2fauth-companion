@@ -50,6 +50,29 @@ private final class LockedCounter: @unchecked Sendable {
     }
 }
 
+private final class RequestGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isSuspended = false
+    private let release = DispatchSemaphore(value: 0)
+
+    func suspendResponse() {
+        lock.withLock {
+            isSuspended = true
+        }
+        release.wait()
+    }
+
+    func waitUntilSuspended() async {
+        while !lock.withLock({ isSuspended }) {
+            await Task.yield()
+        }
+    }
+
+    func resumeResponse() {
+        release.signal()
+    }
+}
+
 private actor AsyncGate {
     private var isOpen = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -796,6 +819,74 @@ final class AppModelStateMachineTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    func testStaleForegroundSuccessCannotAffectReplacementSession() async throws {
+        let gate = RequestGate()
+        MockURLProtocol.requestHandler = { request in
+            gate.suspendResponse()
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let json = """
+                [{"id":1,"service":"Old","account":"old","icon":"old.png","otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30}]
+                """
+            return (response, Data(json.utf8))
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let replacementIconURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
+        var watchPushCount = 0
+        let setup = try makeSUT(
+            testName: #function,
+            pushWatchSnapshot: { watchPushCount += 1 },
+            iconCache: cache
+        )
+        setup.configStore.baseURLString = "https://old.example"
+        try secretStore.saveAPIKey("old-key")
+        setup.appModel.sessionState = .unlocked
+
+        let sync = Task { await setup.appModel.syncNow() }
+        await gate.waitUntilSuspended()
+        await setup.appModel.logout()
+
+        setup.configStore.baseURLString = "https://replacement.example"
+        try secretStore.saveAPIKey("replacement-key")
+        let replacementSyncDate = Date(timeIntervalSince1970: 12345)
+        setup.configStore.lastSuccessfulSyncAt = replacementSyncDate
+        setup.appModel.lastSuccessfulSyncAt = replacementSyncDate
+        let replacement = AccountEntity(
+            remoteID: 2,
+            service: "Replacement",
+            account: "replacement",
+            otpType: "totp",
+            digits: 6,
+            algorithm: "SHA1",
+            period: 30,
+            iconFilename: "replacement.png",
+            encryptedSecret: nil,
+            updatedAt: replacementSyncDate
+        )
+        setup.modelContext.insert(replacement)
+        try setup.modelContext.save()
+        await cache.cache(data: Data("replacement-icon".utf8), for: replacementIconURL)
+
+        gate.resumeResponse()
+        let result = await sync.value
+
+        XCTAssertEqual(setup.appModel.sessionState, .loggedOut)
+        XCTAssertEqual(setup.appModel.lastSuccessfulSyncAt, replacementSyncDate)
+        XCTAssertEqual(setup.configStore.lastSuccessfulSyncAt, replacementSyncDate)
+        XCTAssertEqual(try setup.modelContext.fetch(FetchDescriptor<AccountEntity>()).map(\.remoteID), [2])
+        XCTAssertEqual(watchPushCount, 0)
+        let hasReplacementIcon = await cache.hasCachedData(for: replacementIconURL)
+        XCTAssertTrue(hasReplacementIcon)
+        if case .stale = result {
+        } else {
+            XCTFail("Expected stale result")
+        }
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     func testLogoutPersistsPendingWatchClearWhenWatchDeliveryCannotRun() async throws {
         let configStore = makeTestConfigStore(testName: #function)
         let watchSession = TestWatchSession()
@@ -820,6 +911,7 @@ final class AppModelStateMachineTests: XCTestCase {
     private func makeSUT(
         testName: String,
         configStore: UserDefaultsAppConfigStore? = nil,
+        pushWatchSnapshot: @escaping () -> Void = {},
         clearWatchSnapshot: @escaping () -> Void = {},
         biometricAuthenticator: any BiometricAuthenticator = MockBiometricAuthenticator(result: .success(true)),
         iconCache: AccountIconCache = .shared
@@ -836,7 +928,7 @@ final class AppModelStateMachineTests: XCTestCase {
             secretStore: secretStore,
             repository: repository,
             scheduleBackgroundRefresh: {},
-            pushWatchSnapshot: {},
+            pushWatchSnapshot: pushWatchSnapshot,
             clearWatchSnapshot: clearWatchSnapshot,
             biometricAuthenticator: biometricAuthenticator,
             iconCache: iconCache
@@ -915,6 +1007,109 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
         XCTAssertNil(secretStore.loadAPIKey())
         let hasCachedData = await cache.hasCachedData(for: iconURL)
         XCTAssertFalse(hasCachedData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testStaleBackgroundSuccessCannotAffectReplacementSession() async throws {
+        let gate = RequestGate()
+        MockURLProtocol.requestHandler = { request in
+            gate.suspendResponse()
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let json = """
+                [{"id":1,"service":"Old","account":"old","icon":"old.png","otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30}]
+                """
+            return (response, Data(json.utf8))
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let replacementIconURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
+        let setup = try makeSUT(testName: #function, iconCache: cache)
+        setup.configStore.baseURLString = "https://old.example"
+        try secretStore.saveAPIKey("old-key")
+
+        let sync = Task { await setup.manager.runBackgroundSync(isCancelled: { false }) }
+        await gate.waitUntilSuspended()
+        setup.configStore.baseURLString = "https://replacement.example"
+        try secretStore.saveAPIKey("replacement-key")
+        let context = ModelContext(setup.modelContainer)
+        context.insert(AccountEntity(
+            remoteID: 2,
+            service: "Replacement",
+            account: "replacement",
+            otpType: "totp",
+            digits: 6,
+            algorithm: "SHA1",
+            period: 30,
+            iconFilename: "replacement.png",
+            encryptedSecret: nil,
+            updatedAt: Date()
+        ))
+        try context.save()
+        await cache.cache(data: Data("replacement-icon".utf8), for: replacementIconURL)
+
+        gate.resumeResponse()
+        _ = await sync.value
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<AccountEntity>()).map(\.remoteID), [2])
+        XCTAssertEqual(secretStore.loadAPIKey(), "replacement-key")
+        XCTAssertFalse(setup.configStore.requiresRelogin)
+        let hasReplacementIcon = await cache.hasCachedData(for: replacementIconURL)
+        XCTAssertTrue(hasReplacementIcon)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testStaleBackgroundUnauthorizedCannotWipeReplacementSession() async throws {
+        let gate = RequestGate()
+        MockURLProtocol.requestHandler = { request in
+            gate.suspendResponse()
+            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let replacementIconURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
+        var watchClearCount = 0
+        let setup = try makeSUT(
+            testName: #function,
+            clearWatchSnapshot: { watchClearCount += 1 },
+            iconCache: cache
+        )
+        setup.configStore.baseURLString = "https://old.example"
+        try secretStore.saveAPIKey("old-key")
+
+        let sync = Task { await setup.manager.runBackgroundSync(isCancelled: { false }) }
+        await gate.waitUntilSuspended()
+        setup.configStore.baseURLString = "https://replacement.example"
+        try secretStore.saveAPIKey("replacement-key")
+        let context = ModelContext(setup.modelContainer)
+        context.insert(AccountEntity(
+            remoteID: 2,
+            service: "Replacement",
+            account: "replacement",
+            otpType: "totp",
+            digits: 6,
+            algorithm: "SHA1",
+            period: 30,
+            iconFilename: "replacement.png",
+            encryptedSecret: nil,
+            updatedAt: Date()
+        ))
+        try context.save()
+        await cache.cache(data: Data("replacement-icon".utf8), for: replacementIconURL)
+
+        gate.resumeResponse()
+        _ = await sync.value
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<AccountEntity>()).map(\.remoteID), [2])
+        XCTAssertEqual(secretStore.loadAPIKey(), "replacement-key")
+        XCTAssertFalse(setup.configStore.requiresRelogin)
+        XCTAssertEqual(watchClearCount, 0)
+        let hasReplacementIcon = await cache.hasCachedData(for: replacementIconURL)
+        XCTAssertTrue(hasReplacementIcon)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -1008,7 +1203,11 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
         configStore: UserDefaultsAppConfigStore? = nil,
         clearWatchSnapshot: @escaping () -> Void = {},
         iconCache: AccountIconCache = .shared
-    ) throws -> (manager: BackgroundSyncManager, configStore: UserDefaultsAppConfigStore) {
+    ) throws -> (
+        manager: BackgroundSyncManager,
+        configStore: UserDefaultsAppConfigStore,
+        modelContainer: ModelContainer
+    ) {
         let container = try makeInMemoryModelContainer()
         let configStore = configStore ?? makeTestConfigStore(testName: testName)
         let apiClient = URLSessionAPIClient(session: makeMockedURLSession())
@@ -1024,7 +1223,7 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
             clearWatchSnapshot: clearWatchSnapshot,
             iconCache: iconCache
         )
-        return (manager, configStore)
+        return (manager, configStore, container)
     }
 }
 

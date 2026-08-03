@@ -5,6 +5,7 @@ enum SyncResult {
     case success
     case unauthorized
     case transient(String)
+    case stale
 }
 
 enum AccountRepositoryError: Error {
@@ -30,20 +31,29 @@ final class DefaultAccountRepository: AccountRepository {
         try cryptoStore.decrypt(encryptedSecret)
     }
 
-    func syncAccounts(context: ModelContext, baseURL: URL, apiKey: String, includeSecrets: Bool) async -> SyncResult {
+    func syncAccounts(
+        context: ModelContext,
+        baseURL: URL,
+        apiKey: String,
+        includeSecrets: Bool,
+        isCurrentSession: @escaping () -> Bool
+    ) async -> SyncResult {
         do {
             let remoteAccounts = try await apiClient.fetchAccounts(
                 baseURL: baseURL,
                 apiKey: apiKey,
                 includeSecrets: includeSecrets
             )
+            guard isCurrentSession() else {
+                return .stale
+            }
             let filteredAccounts = remoteAccounts.filter { $0.otpType.lowercased() != "hotp" }
             try upsert(remoteAccounts: filteredAccounts, context: context)
             return .success
         } catch APIError.unauthorized {
-            return .unauthorized
+            return isCurrentSession() ? .unauthorized : .stale
         } catch APIError.forbidden {
-            return .unauthorized
+            return isCurrentSession() ? .unauthorized : .stale
         } catch APIError.server(let code) {
             ErrorReporter.report("repository.sync_server_error", metadata: ["status": String(code)])
             return .transient(

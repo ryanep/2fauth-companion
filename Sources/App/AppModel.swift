@@ -170,13 +170,20 @@ final class AppModel: ObservableObject {
             return
         }
 
+        let sessionRevision = advanceSessionRevision()
         isSyncing = true
         let syncResult = await repository.syncAccounts(
             context: modelContext,
             baseURL: baseURL,
             apiKey: apiKey,
-            includeSecrets: true
+            includeSecrets: true,
+            isCurrentSession: { [weak self] in
+                self?.isCurrentLoginAttempt(revision: sessionRevision, baseURL: baseURL) == true
+            }
         )
+        guard isCurrentLoginAttempt(revision: sessionRevision, baseURL: baseURL) else {
+            return
+        }
         isSyncing = false
 
         switch syncResult {
@@ -199,6 +206,8 @@ final class AppModel: ObservableObject {
                 ErrorReporter.report("login.secure_store_failed")
                 loginError = String(localized: "login.error.secure_store_failed")
             }
+        case .stale:
+            return
         case .unauthorized:
             loginError = String(localized: "login.error.invalid_credentials")
         case .transient(let reason):
@@ -255,18 +264,26 @@ final class AppModel: ObservableObject {
 
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
             if sessionState == .unlocked || sessionState == .degradedOffline {
+                _ = advanceSessionRevision()
                 sessionState = .loggedOut
             }
             return nil
         }
 
+        let sessionRevision = configStore.sessionRevision
         isSyncing = true
         let result = await repository.syncAccounts(
             context: modelContext,
             baseURL: baseURL,
             apiKey: apiKey,
-            includeSecrets: true
+            includeSecrets: true,
+            isCurrentSession: { [weak self] in
+                self?.isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) == true
+            }
         )
+        guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+            return .stale
+        }
         isSyncing = false
 
         switch result {
@@ -281,7 +298,12 @@ final class AppModel: ObservableObject {
             syncMessage = nil
             startTimer()
             pushWatchSnapshot()
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                return .stale
+            }
             await pruneIconCache(baseURL: baseURL)
+        case .stale:
+            return .stale
         case .unauthorized:
             ErrorReporter.report("sync.unauthorized")
             await enforceReloginWipe()
@@ -300,10 +322,12 @@ final class AppModel: ObservableObject {
     }
 
     func logout() async {
+        let sessionRevision = advanceSessionRevision()
+        isSyncing = false
         sessionState = .loggedOut
         loginError = nil
         syncMessage = nil
-        await wipeAllData(requireRelogin: false)
+        await wipeAllData(requireRelogin: false, sessionRevision: sessionRevision)
     }
 
     func updateAutoLockTimeout(seconds: Int) {
@@ -369,6 +393,21 @@ final class AppModel: ObservableObject {
         configuredBaseURL() != nil && secretStore.loadAPIKey() != nil
     }
 
+    private func advanceSessionRevision() -> Int {
+        configStore.sessionRevision &+= 1
+        return configStore.sessionRevision
+    }
+
+    private func isCurrentLoginAttempt(revision: Int, baseURL: URL) -> Bool {
+        configStore.sessionRevision == revision && validatedBaseURL(from: baseURLInput) == baseURL
+    }
+
+    private func isCurrentSession(revision: Int, baseURL: URL, apiKey: String) -> Bool {
+        configStore.sessionRevision == revision
+            && configuredBaseURL() == baseURL
+            && secretStore.loadAPIKey() == apiKey
+    }
+
     private func validatedBaseURL(from input: String) -> URL? {
         switch TransportURLValidator.validateBaseURL(input, policy: configStore.transportPolicy) {
         case .success(let url):
@@ -399,20 +438,30 @@ final class AppModel: ObservableObject {
     }
 
     private func enforceReloginWipe() async {
+        let sessionRevision = advanceSessionRevision()
+        isSyncing = false
         sessionState = .reloginRequired
-        await wipeAllData(requireRelogin: true)
-        syncMessage = String(localized: "sync.status.session_expired")
+        await wipeAllData(requireRelogin: true, sessionRevision: sessionRevision)
+        if configStore.sessionRevision == sessionRevision {
+            syncMessage = String(localized: "sync.status.session_expired")
+        }
     }
 
-    private func wipeAllData(requireRelogin: Bool) async {
+    private func wipeAllData(requireRelogin: Bool, sessionRevision: Int) async {
         #if DEBUG
             if let delayMS = UInt64(ProcessInfo.processInfo.environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
                 try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
             }
         #endif
 
+        guard configStore.sessionRevision == sessionRevision else {
+            return
+        }
         await iconCache.clear()
 
+        guard configStore.sessionRevision == sessionRevision else {
+            return
+        }
         do {
             try repository.wipeCachedData(context: modelContext)
         } catch {
@@ -420,6 +469,9 @@ final class AppModel: ObservableObject {
             syncMessage = String(localized: "sync.error.cache_clear_failed")
         }
 
+        guard configStore.sessionRevision == sessionRevision else {
+            return
+        }
         _ = secretStore.deleteAPIKey()
         _ = secretStore.deleteEncryptionKey()
 
@@ -557,6 +609,8 @@ extension AppModel {
         switch result {
         case .success:
             return true
+        case .stale:
+            return false
         case .transient:
             scheduleBackgroundRefresh()
             pushWatchSnapshot()
