@@ -83,6 +83,7 @@ final class AppModel: ObservableObject {
     private let pushWatchSnapshot: () -> Void
     private let clearWatchSnapshot: () -> Void
     private let biometricAuthenticator: any BiometricAuthenticator
+    private let iconCache: AccountIconCache
 
     private var unlockedState: SessionState = .unlocked
     private var backgroundedAt: Date?
@@ -102,7 +103,8 @@ final class AppModel: ObservableObject {
         scheduleBackgroundRefresh: @escaping () -> Void,
         pushWatchSnapshot: @escaping () -> Void,
         clearWatchSnapshot: @escaping () -> Void,
-        biometricAuthenticator: any BiometricAuthenticator = LocalBiometricAuthenticator()
+        biometricAuthenticator: any BiometricAuthenticator = LocalBiometricAuthenticator(),
+        iconCache: AccountIconCache = .shared
     ) {
         self.modelContext = modelContext
         self.configStore = configStore
@@ -112,6 +114,7 @@ final class AppModel: ObservableObject {
         self.pushWatchSnapshot = pushWatchSnapshot
         self.clearWatchSnapshot = clearWatchSnapshot
         self.biometricAuthenticator = biometricAuthenticator
+        self.iconCache = iconCache
         self.baseURLInput = configStore.baseURLString ?? ""
         self.autoLockTimeoutSeconds = configStore.autoLockTimeoutSeconds
         self.lastSuccessfulSyncAt = configStore.lastSuccessfulSyncAt
@@ -191,6 +194,7 @@ final class AppModel: ObservableObject {
                 scheduleBackgroundRefresh()
                 startTimer()
                 pushWatchSnapshot()
+                await pruneIconCache(baseURL: baseURL)
             } catch {
                 ErrorReporter.report("login.secure_store_failed")
                 loginError = String(localized: "login.error.secure_store_failed")
@@ -277,6 +281,7 @@ final class AppModel: ObservableObject {
             syncMessage = nil
             startTimer()
             pushWatchSnapshot()
+            await pruneIconCache(baseURL: baseURL)
         case .unauthorized:
             ErrorReporter.report("sync.unauthorized")
             await enforceReloginWipe()
@@ -312,6 +317,9 @@ final class AppModel: ObservableObject {
         case .background:
             backgroundedAt = Date()
             stopTimer()
+            Task {
+                await iconCache.cancelUnownedRefreshes()
+            }
         case .active:
             guard let backgroundedAt else { return }
             let elapsed = Date().timeIntervalSince(backgroundedAt)
@@ -402,6 +410,8 @@ final class AppModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
             }
         #endif
+
+        await iconCache.clear()
 
         do {
             try repository.wipeCachedData(context: modelContext)
@@ -500,6 +510,7 @@ extension AppModel {
                 apiKey: apiKey,
                 requestBody: requestBody
             )
+            await pruneIconCache(baseURL: baseURL)
             _ = await refreshAfterAccountCreation()
         } catch AccountRepositoryError.createdButNotCached {
             if await refreshAfterAccountCreation() {
@@ -656,5 +667,28 @@ extension AppModel {
         raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+
+    func iconURL(for filename: String?) -> URL? {
+        guard let baseURL = configuredBaseURL() else {
+            return nil
+        }
+        return AccountIconCache.iconURL(baseURL: baseURL, iconFilename: filename)
+    }
+
+    func iconData(for url: URL, allowRemoteLoad: Bool = true) async -> Data? {
+        await iconCache.imageData(for: url, allowRemoteLoad: allowRemoteLoad)
+    }
+
+    private func pruneIconCache(baseURL: URL) async {
+        do {
+            let accounts = try modelContext.fetch(FetchDescriptor<AccountEntity>())
+            let urls = Set(accounts.compactMap { account in
+                AccountIconCache.iconURL(baseURL: baseURL, iconFilename: account.iconFilename)
+            })
+            await iconCache.prune(keeping: urls)
+        } catch {
+            ErrorReporter.report("account.icon_cache_prune_failed")
+        }
     }
 }

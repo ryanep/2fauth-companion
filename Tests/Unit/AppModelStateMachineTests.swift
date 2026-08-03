@@ -1,8 +1,14 @@
 import Foundation
 import BackgroundTasks
+import ImageIO
 import SwiftData
+import SwiftUI
 import WatchConnectivity
 import XCTest
+
+#if canImport(UIKit)
+    import UIKit
+#endif
 
 @testable import TwoFAuth
 
@@ -27,6 +33,51 @@ private final class TestWatchSession: WatchSession {
     }
 }
 
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func increment() {
+        lock.withLock {
+            value += 1
+        }
+    }
+
+    var count: Int {
+        lock.withLock {
+            value
+        }
+    }
+}
+
+private actor AsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func open() {
+        guard !isOpen else {
+            return
+        }
+
+        isOpen = true
+        let currentWaiters = waiters
+        waiters.removeAll()
+        for waiter in currentWaiters {
+            waiter.resume()
+        }
+    }
+
+    func wait() async {
+        guard !isOpen else {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
 @MainActor
 final class AppModelStateMachineTests: XCTestCase {
     private struct SUT {
@@ -36,6 +87,22 @@ final class AppModelStateMachineTests: XCTestCase {
     }
 
     nonisolated(unsafe) private let secretStore = KeychainSecretStore()
+
+    #if canImport(UIKit)
+        private func visiblePNGData(color: UIColor = .systemBlue) -> Data {
+            UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 1, height: 2))
+                UIColor.clear.setFill()
+                context.fill(CGRect(x: 1, y: 0, width: 1, height: 2))
+            }
+        }
+
+        private func transparentPNGData() -> Data {
+            UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }
+        }
+
+    #endif
 
     override func setUp() {
         super.setUp()
@@ -230,6 +297,505 @@ final class AppModelStateMachineTests: XCTestCase {
         XCTAssertTrue(fetched.isEmpty)
     }
 
+    func testIconURLBuildsStorageIconURL() throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com/base"
+
+        let url = setup.appModel.iconURL(for: "github.png")
+
+        XCTAssertEqual(url?.absoluteString, "https://example.com/base/storage/icons/github.png")
+    }
+
+    func testAccountIconLoadingAllowsInactiveForegroundTransition() {
+        XCTAssertTrue(canLoadAccountIcon(in: .active))
+        XCTAssertTrue(canLoadAccountIcon(in: .inactive))
+        XCTAssertFalse(canLoadAccountIcon(in: .background))
+    }
+
+    func testIconURLAcceptsStorageIconPath() throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com/base"
+
+        let url = setup.appModel.iconURL(for: "/storage/icons/github.svg")
+
+        XCTAssertEqual(url?.absoluteString, "https://example.com/base/storage/icons/github.svg")
+    }
+
+    func testIconURLAcceptsSameOriginAbsoluteURL() throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com/base"
+
+        let url = setup.appModel.iconURL(for: "https://example.com/base/storage/icons/github.png")
+
+        XCTAssertEqual(url?.absoluteString, "https://example.com/base/storage/icons/github.png")
+    }
+
+    func testIconURLRejectsUnsafeLocations() throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+
+        XCTAssertNil(setup.appModel.iconURL(for: "../github.png"))
+        XCTAssertNil(setup.appModel.iconURL(for: "nested/github.png"))
+        XCTAssertNil(setup.appModel.iconURL(for: "/storage/icons/../github.png"))
+        XCTAssertNil(setup.appModel.iconURL(for: "https://example.com/storage/icons/%2e%2e"))
+        XCTAssertNil(setup.appModel.iconURL(for: "https://example.com/storage/icons/%2E%2E"))
+        XCTAssertNil(setup.appModel.iconURL(for: "https://example.com/storage/icons/..%5cgithub.png"))
+        XCTAssertNil(setup.appModel.iconURL(for: "https://example.com/storage/icons/..%5Cgithub.png"))
+        XCTAssertNil(setup.appModel.iconURL(for: "https://cdn.example.com/storage/icons/github.png"))
+        XCTAssertNil(setup.appModel.iconURL(for: "http://example.com/storage/icons/github.png"))
+    }
+
+    func testIconURLRemovesCredentialsQueryAndFragmentFromBaseURL() throws {
+        let url = AccountIconCache.iconURL(
+            baseURL: URL(string: "https://user:password@example.com/base?token=secret#fragment")!,
+            iconFilename: "github.png"
+        )
+
+        XCTAssertEqual(url?.absoluteString, "https://example.com/base/storage/icons/github.png")
+    }
+
+    func testAccountIconCachePruneRemovesOnlyStaleIcons() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let keptURL = URL(string: "https://example.com/storage/icons/github.png")!
+        let staleURL = URL(string: "https://example.com/storage/icons/gitlab.png")!
+
+        await cache.cache(data: Data("kept".utf8), for: keptURL)
+        await cache.cache(data: Data("stale".utf8), for: staleURL)
+
+        await cache.prune(keeping: [keptURL])
+
+        let keptExists = await cache.hasCachedData(for: keptURL)
+        let staleExists = await cache.hasCachedData(for: staleURL)
+        XCTAssertTrue(keptExists)
+        XCTAssertFalse(staleExists)
+
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheRasterizesSVGBeforeCaching() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.svg")!
+        let svgData = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".utf8)
+        let rasterizedData = visiblePNGData()
+
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url, url)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, svgData)
+        }
+
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            rasterizeSVG: { data in
+                data == svgData ? rasterizedData : nil
+            }
+        )
+
+        let firstLoad = await cache.imageData(for: url)
+        MockURLProtocol.requestHandler = nil
+        let cachedLoad = await cache.imageData(for: url)
+
+        XCTAssertEqual(firstLoad, rasterizedData)
+        XCTAssertEqual(cachedLoad, rasterizedData)
+
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheCoalescesConcurrentSVGLoads() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.svg")!
+        let svgData = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".utf8)
+        let rasterizedData = visiblePNGData()
+        let requestCounter = LockedCounter()
+        let rasterizeCounter = LockedCounter()
+        let rasterizerStarted = AsyncGate()
+        let releaseRasterizer = AsyncGate()
+
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url, url)
+            requestCounter.increment()
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, svgData)
+        }
+
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            rasterizeSVG: { data in
+                rasterizeCounter.increment()
+                await rasterizerStarted.open()
+                await releaseRasterizer.wait()
+                return data == svgData ? rasterizedData : nil
+            }
+        )
+
+        let firstLoad = Task {
+            await cache.imageData(for: url)
+        }
+        await rasterizerStarted.wait()
+
+        let results = await withTaskGroup(of: Data?.self) { group in
+            for _ in 0..<4 {
+                group.addTask {
+                    await cache.imageData(for: url)
+                }
+            }
+
+            await releaseRasterizer.open()
+
+            var values: [Data?] = []
+            for await value in group {
+                values.append(value)
+            }
+            return values
+        }
+        let firstResult = await firstLoad.value
+
+        XCTAssertEqual(firstResult, rasterizedData)
+        XCTAssertEqual(results, Array(repeating: rasterizedData, count: 4))
+        XCTAssertEqual(requestCounter.count, 1)
+        XCTAssertEqual(rasterizeCounter.count, 1)
+
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheCancelsInFlightLoadsWhenSuspended() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.svg")!
+        let svgData = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".utf8)
+        let rasterData = visiblePNGData()
+        let rasterizerStarted = AsyncGate()
+        let releaseRasterizer = AsyncGate()
+        let cancelledRasterizer = LockedCounter()
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, svgData)
+        }
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            rasterizeSVG: { _ in
+                await rasterizerStarted.open()
+                await releaseRasterizer.wait()
+                if Task.isCancelled {
+                    cancelledRasterizer.increment()
+                }
+                return rasterData
+            }
+        )
+        let load = Task { await cache.imageData(for: url) }
+        await rasterizerStarted.wait()
+
+        load.cancel()
+        try await Task.sleep(for: .milliseconds(10))
+        await releaseRasterizer.open()
+
+        let loadedData = await load.value
+        let hasCachedData = await cache.hasCachedData(for: url)
+        XCTAssertNil(loadedData)
+        XCTAssertFalse(hasCachedData)
+        XCTAssertEqual(cancelledRasterizer.count, 1)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheKeepsCoalescedLoadForRemainingWaiter() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.svg")!
+        let svgData = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".utf8)
+        let rasterData = visiblePNGData()
+        let rasterizerStarted = AsyncGate()
+        let releaseRasterizer = AsyncGate()
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, svgData)
+        }
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            rasterizeSVG: { _ in
+                await rasterizerStarted.open()
+                await releaseRasterizer.wait()
+                return rasterData
+            }
+        )
+        let cancelledWaiter = Task { await cache.imageData(for: url) }
+        let remainingWaiter = Task { await cache.imageData(for: url) }
+        await rasterizerStarted.wait()
+        try await Task.sleep(for: .milliseconds(10))
+
+        cancelledWaiter.cancel()
+        await releaseRasterizer.open()
+
+        let cancelledResult = await cancelledWaiter.value
+        let remainingResult = await remainingWaiter.value
+        XCTAssertNil(cancelledResult)
+        XCTAssertEqual(remainingResult, rasterData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheCancelsUnownedStaleRefresh() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let cachedData = visiblePNGData()
+        let svgData = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".utf8)
+        let rasterizerStarted = AsyncGate()
+        let releaseRasterizer = AsyncGate()
+        let cancelledRasterizer = LockedCounter()
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: cachedData, for: url)
+        let cacheFile = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: cacheFile.path
+        )
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, svgData)
+        }
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            rasterizeSVG: { _ in
+                await rasterizerStarted.open()
+                await releaseRasterizer.wait()
+                if Task.isCancelled {
+                    cancelledRasterizer.increment()
+                }
+                return cachedData
+            }
+        )
+
+        let loadedData = await cache.imageData(for: url)
+        XCTAssertEqual(loadedData, cachedData)
+        await rasterizerStarted.wait()
+        await cache.cancelUnownedRefreshes()
+        await releaseRasterizer.open()
+
+        XCTAssertEqual(cancelledRasterizer.count, 1)
+        XCTAssertEqual(try Data(contentsOf: cacheFile), cachedData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheRejectsBlankRasterizedSVG() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.svg")!
+        let svgData = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".utf8)
+        let blankPNGData = transparentPNGData()
+
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url, url)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, svgData)
+        }
+
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            rasterizeSVG: { data in
+                data == svgData ? blankPNGData : nil
+            }
+        )
+
+        let loadedData = await cache.imageData(for: url)
+        let hasCachedData = await cache.hasCachedData(for: url)
+
+        XCTAssertNil(loadedData)
+        XCTAssertFalse(hasCachedData)
+
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheRasterizesPreviouslyCachedSVG() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.svg")!
+        let svgData = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>".utf8)
+        let rasterizedData = visiblePNGData()
+        let cache = AccountIconCache(
+            cacheDirectory: directory,
+            rasterizeSVG: { data in
+                rasterizedData
+            }
+        )
+
+        await cache.cache(data: svgData, for: url)
+
+        let migratedLoad = await cache.imageData(for: url)
+        let cachedLoad = await cache.imageData(for: url)
+
+        XCTAssertEqual(migratedLoad, rasterizedData)
+        XCTAssertEqual(cachedLoad, rasterizedData)
+
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheRejectsIncompleteCachedRaster() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let pngData = visiblePNGData()
+        let metadataOnlyData = try XCTUnwrap(
+            (16..<pngData.count).lazy
+                .map { Data(pngData.prefix($0)) }
+                .first { data in
+                    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+                        return false
+                    }
+                    return CGImageSourceCopyPropertiesAtIndex(source, 0, nil) != nil
+                        && CGImageSourceCreateImageAtIndex(source, 0, nil) == nil
+                }
+        )
+        let replacementData = visiblePNGData(color: .systemRed)
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, replacementData)
+        }
+        let cache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
+        await cache.cache(data: metadataOnlyData, for: url)
+
+        let loadedData = await cache.imageData(for: url)
+
+        XCTAssertEqual(loadedData, replacementData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheDoesNotCacheInvalidImageResponse() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data("<html>temporarily unavailable</html>".utf8))
+        }
+        let cache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
+
+        let loadedData = await cache.imageData(for: url)
+        let hasCachedData = await cache.hasCachedData(for: url)
+
+        XCTAssertNil(loadedData)
+        XCTAssertFalse(hasCachedData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheCacheOnlyMissDoesNotStartNetworkLoad() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let requestCounter = LockedCounter()
+        let responseData = visiblePNGData()
+        MockURLProtocol.requestHandler = { request in
+            requestCounter.increment()
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, responseData)
+        }
+        let cache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
+
+        let loadedData = await cache.imageData(for: url, allowRemoteLoad: false)
+
+        XCTAssertNil(loadedData)
+        XCTAssertEqual(requestCounter.count, 0)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheReturnsStaleIconBeforeRefreshing() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let cachedData = visiblePNGData()
+        let refreshedData = visiblePNGData(color: .systemRed)
+        let cacheWriter = AccountIconCache(cacheDirectory: directory)
+        await cacheWriter.cache(data: cachedData, for: url)
+        let cacheFile = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: cacheFile.path
+        )
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, refreshedData)
+        }
+        let cache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
+
+        let loadedData = await cache.imageData(for: url)
+
+        XCTAssertEqual(loadedData, cachedData)
+        for _ in 0..<50 where (try? Data(contentsOf: cacheFile)) != refreshedData {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(try Data(contentsOf: cacheFile), refreshedData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testLogoutClearsAccountIconCache() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        await cache.cache(data: visiblePNGData(), for: url)
+        let setup = try makeSUT(testName: #function, iconCache: cache)
+
+        await setup.appModel.logout()
+
+        let hasCachedData = await cache.hasCachedData(for: url)
+        XCTAssertFalse(hasCachedData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testSuccessfulSyncPrunesUnusedAccountIcons() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let keptURL = URL(string: "https://example.com/storage/icons/github.png")!
+        let staleURL = URL(string: "https://example.com/storage/icons/gitlab.png")!
+        await cache.cache(data: visiblePNGData(), for: keptURL)
+        await cache.cache(data: visiblePNGData(), for: staleURL)
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let json = """
+                [{"id":101,"service":"GitHub","account":"ryan","icon":"github.png","otp_type":"totp","secret":null,"digits":6,"algorithm":"SHA1","period":30}]
+                """
+            return (response, Data(json.utf8))
+        }
+        let setup = try makeSUT(testName: #function, iconCache: cache)
+        setup.configStore.baseURLString = "https://example.com"
+        try secretStore.saveAPIKey("api-key")
+
+        _ = await setup.appModel.syncNow()
+
+        let keptExists = await cache.hasCachedData(for: keptURL)
+        let staleExists = await cache.hasCachedData(for: staleURL)
+        XCTAssertTrue(keptExists)
+        XCTAssertFalse(staleExists)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     func testLogoutPersistsPendingWatchClearWhenWatchDeliveryCannotRun() async throws {
         let configStore = makeTestConfigStore(testName: #function)
         let watchSession = TestWatchSession()
@@ -255,7 +821,8 @@ final class AppModelStateMachineTests: XCTestCase {
         testName: String,
         configStore: UserDefaultsAppConfigStore? = nil,
         clearWatchSnapshot: @escaping () -> Void = {},
-        biometricAuthenticator: any BiometricAuthenticator = MockBiometricAuthenticator(result: .success(true))
+        biometricAuthenticator: any BiometricAuthenticator = MockBiometricAuthenticator(result: .success(true)),
+        iconCache: AccountIconCache = .shared
     ) throws -> SUT {
         let container = try makeInMemoryModelContainer()
         let context = ModelContext(container)
@@ -271,7 +838,8 @@ final class AppModelStateMachineTests: XCTestCase {
             scheduleBackgroundRefresh: {},
             pushWatchSnapshot: {},
             clearWatchSnapshot: clearWatchSnapshot,
-            biometricAuthenticator: biometricAuthenticator
+            biometricAuthenticator: biometricAuthenticator,
+            iconCache: iconCache
         )
 
         return SUT(appModel: appModel, configStore: configStore, modelContext: context)
@@ -330,7 +898,13 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
             return (response, Data())
         }
 
-        let setup = try makeSUT(testName: #function)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let iconURL = URL(string: "https://example.com/storage/icons/github.png")!
+        await cache.cache(data: Data("icon".utf8), for: iconURL)
+        let setup = try makeSUT(testName: #function, iconCache: cache)
         setup.configStore.baseURLString = "https://example.com"
         try secretStore.saveAPIKey("api-key")
 
@@ -339,6 +913,9 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
         XCTAssertTrue(result)
         XCTAssertTrue(setup.configStore.requiresRelogin)
         XCTAssertNil(secretStore.loadAPIKey())
+        let hasCachedData = await cache.hasCachedData(for: iconURL)
+        XCTAssertFalse(hasCachedData)
+        try? FileManager.default.removeItem(at: directory)
     }
 
     func testRunBackgroundSyncUnauthorizedPersistsPendingWatchClearWhenWatchDeliveryCannotRun() async throws {
@@ -429,7 +1006,8 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
     private func makeSUT(
         testName: String,
         configStore: UserDefaultsAppConfigStore? = nil,
-        clearWatchSnapshot: @escaping () -> Void = {}
+        clearWatchSnapshot: @escaping () -> Void = {},
+        iconCache: AccountIconCache = .shared
     ) throws -> (manager: BackgroundSyncManager, configStore: UserDefaultsAppConfigStore) {
         let container = try makeInMemoryModelContainer()
         let configStore = configStore ?? makeTestConfigStore(testName: testName)
@@ -443,7 +1021,8 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
             configStore: configStore,
             secretStore: secretStore,
             repository: repository,
-            clearWatchSnapshot: clearWatchSnapshot
+            clearWatchSnapshot: clearWatchSnapshot,
+            iconCache: iconCache
         )
         return (manager, configStore)
     }

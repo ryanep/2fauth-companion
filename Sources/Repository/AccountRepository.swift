@@ -173,6 +173,7 @@ final class DefaultAccountRepository: AccountRepository {
             digits: remote.digits?.rawValue,
             algorithm: remote.algorithm?.rawValue,
             period: remote.period,
+            iconFilename: remote.icon,
             encryptedSecret: nil,
             updatedAt: updatedAt
         )
@@ -191,6 +192,7 @@ final class DefaultAccountRepository: AccountRepository {
             || entity.digits != remote.digits?.rawValue
             || entity.algorithm != remote.algorithm?.rawValue
             || entity.period != remote.period
+            || entity.iconFilename != remote.icon
     }
 
     private func applyMetadata(from remote: APIAccount, to entity: AccountEntity) {
@@ -200,6 +202,7 @@ final class DefaultAccountRepository: AccountRepository {
         entity.digits = remote.digits?.rawValue
         entity.algorithm = remote.algorithm?.rawValue
         entity.period = remote.period
+        entity.iconFilename = remote.icon
     }
 
     private func updateSecretIfNeeded(remoteSecret: String?, entity: AccountEntity) throws -> Bool {

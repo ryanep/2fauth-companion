@@ -2,6 +2,10 @@ import Foundation
 import SwiftData
 import XCTest
 
+#if canImport(UIKit)
+    import UIKit
+#endif
+
 @testable import TwoFAuth
 
 private actor AsyncGate {
@@ -27,6 +31,7 @@ private final class AddAccountTestRepository: AccountRepository {
         fatalError("Unexpected preview")
     }
     var createHandler: () async throws -> Void = {}
+    var createdAccount: AccountEntity?
     private(set) var syncCallCount = 0
     private(set) var syncSawCancellation = false
     private(set) var wipeCallCount = 0
@@ -56,6 +61,10 @@ private final class AddAccountTestRepository: AccountRepository {
         requestBody: AccountCreationRequest
     ) async throws {
         try await createHandler()
+        if let createdAccount {
+            context.insert(createdAccount)
+            try context.save()
+        }
     }
 
     func wipeCachedData(context: ModelContext) throws {
@@ -73,6 +82,7 @@ final class AppModelAddAccountTests: XCTestCase {
     }
 
     override func tearDown() {
+        MockURLProtocol.requestHandler = nil
         let secretStore = KeychainSecretStore()
         _ = secretStore.deleteAPIKey()
         _ = secretStore.deleteEncryptionKey()
@@ -179,6 +189,47 @@ final class AppModelAddAccountTests: XCTestCase {
         XCTAssertFalse(setup.repository.syncSawCancellation)
     }
 
+    func testCreatedAccountIconIsAllowedWhenRefreshFails() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let iconURL = URL(string: "https://example.com/storage/icons/new.png")!
+        let iconData = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, iconData)
+        }
+        let cache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
+        await cache.prune(keeping: [])
+        let setup = try makeSUT(testName: #function, iconCache: cache)
+        setup.repository.createdAccount = AccountEntity(
+            remoteID: 10,
+            service: "Example",
+            account: "person@example.com",
+            otpType: "totp",
+            digits: 6,
+            algorithm: "SHA1",
+            period: 30,
+            iconFilename: "new.png",
+            encryptedSecret: nil,
+            updatedAt: Date()
+        )
+        setup.repository.syncHandler = { .transient("offline") }
+
+        try await setup.appModel.addAccount(
+            preview: validPreview(),
+            service: "Example",
+            account: "person@example.com"
+        )
+        let loadedData = await setup.appModel.iconData(for: iconURL)
+
+        XCTAssertEqual(loadedData, iconData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     private var validURI: String {
         "otpauth://totp/Example:person@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example"
     }
@@ -213,7 +264,7 @@ final class AppModelAddAccountTests: XCTestCase {
         return try JSONDecoder().decode(APIAccount.self, from: Data(json.utf8))
     }
 
-    private func makeSUT(testName: String) throws -> SUT {
+    private func makeSUT(testName: String, iconCache: AccountIconCache = .shared) throws -> SUT {
         let container = try makeInMemoryModelContainer()
         let configStore = makeTestConfigStore(testName: testName)
         configStore.baseURLString = "https://example.com"
@@ -227,7 +278,8 @@ final class AppModelAddAccountTests: XCTestCase {
             repository: repository,
             scheduleBackgroundRefresh: {},
             pushWatchSnapshot: {},
-            clearWatchSnapshot: {}
+            clearWatchSnapshot: {},
+            iconCache: iconCache
         )
         return SUT(appModel: appModel, repository: repository, configStore: configStore, secretStore: secretStore)
     }

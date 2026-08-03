@@ -39,6 +39,7 @@
 		7260050553BBA8558C1350BE /* ErrorReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BAF12A56193AD47AAC62C12 /* ErrorReporter.swift */; };
 		79536DC0E9AAE71F9F1D4138 /* TwoFAuthWatchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20DAA69D5C845B728BAF07B7 /* TwoFAuthWatchUITests.swift */; };
 		7D6652FD63B729F8D7B41C43 /* WatchAccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D6ED37904C88BDC3F242A56 /* WatchAccountStore.swift */; };
+		8342AE665EF0038D029B7CD9 /* AccountIconCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E38FF31AFF1EA66F75642B6C /* AccountIconCache.swift */; };
 		86604BEBF437EA513B267546 /* TransportURLValidatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652921529D27032F1FD16569 /* TransportURLValidatorTests.swift */; };
 		8958E09487AAAA3F5A6A057F /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 370BB75282708FD814B967D0 /* MainTabView.swift */; };
 		8B0D11B46331CBEBD7986685 /* AccountRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A1472BBC4ED57947ADE60 /* AccountRepositoryTests.swift */; };
@@ -174,6 +175,7 @@
 		D8E1A6AB65B2F40C90EF0CAD /* AccountRepositoryProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountRepositoryProtocol.swift; sourceTree = "<group>"; };
 		DA68A978214E94768AF1944D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		DE43DCB736D47C66A4E15561 /* AppConfigStoreProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigStoreProtocol.swift; sourceTree = "<group>"; };
+		E38FF31AFF1EA66F75642B6C /* AccountIconCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountIconCache.swift; sourceTree = "<group>"; };
 		E6F89371A551AF85C481E99A /* AESGCMCryptoStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AESGCMCryptoStore.swift; sourceTree = "<group>"; };
 		E70CF1B7F3AA3C29BFF14C45 /* SecurityStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityStoreTests.swift; sourceTree = "<group>"; };
 		E8A654D8290B3CFCC1DC3D82 /* 2FAuthWatchUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = 2FAuthWatchUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -433,6 +435,7 @@
 		D36F6B8DDB53265982C554B3 /* Accounts */ = {
 			isa = PBXGroup;
 			children = (
+				E38FF31AFF1EA66F75642B6C /* AccountIconCache.swift */,
 				9D618BF64A7D0ACB43D222E0 /* AccountsView.swift */,
 				AF662DCFA6ED352DA71DE80E /* AddAccountView.swift */,
 				81D99EF35F9A241D2CBE41BA /* OTPAuthURIValidator.swift */,
@@ -648,6 +651,7 @@
 				0F334A2259B1E1F070DEB5E9 /* APIClientProtocol.swift in Sources */,
 				DDED777F11F8B151572AF81F /* APIError.swift in Sources */,
 				709E45090389C0359D447D73 /* AccountEntity.swift in Sources */,
+				8342AE665EF0038D029B7CD9 /* AccountIconCache.swift in Sources */,
 				FA826BFC2C98DE0CD6A361B1 /* AccountRepository.swift in Sources */,
 				42FD17AAF753A4DEA39ADD15 /* AccountRepositoryProtocol.swift in Sources */,
 				22E9C74C3B07E93C86D8ADA6 /* AccountsView.swift in Sources */,

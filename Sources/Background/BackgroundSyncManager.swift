@@ -26,6 +26,7 @@ import SwiftData
         private let clearWatchSnapshot: () -> Void
         private let taskScheduler: any BackgroundTaskScheduling
         private let report: (String, [String: String]) -> Void
+        private let iconCache: AccountIconCache
 
         init(
             modelContainer: ModelContainer,
@@ -34,7 +35,8 @@ import SwiftData
             repository: any AccountRepository,
             clearWatchSnapshot: @escaping () -> Void = {},
             taskScheduler: any BackgroundTaskScheduling = BGTaskScheduler.shared,
-            report: @escaping (String, [String: String]) -> Void = ErrorReporter.report
+            report: @escaping (String, [String: String]) -> Void = ErrorReporter.report,
+            iconCache: AccountIconCache = .shared
         ) {
             self.modelContainer = modelContainer
             self.configStore = configStore
@@ -43,6 +45,7 @@ import SwiftData
             self.clearWatchSnapshot = clearWatchSnapshot
             self.taskScheduler = taskScheduler
             self.report = report
+            self.iconCache = iconCache
         }
 
         func register() {
@@ -122,6 +125,7 @@ import SwiftData
 
             switch result {
             case .success:
+                await pruneIconCache(context: context, baseURL: baseURL)
                 return true
             case .unauthorized:
                 if isCancelled() {
@@ -134,6 +138,7 @@ import SwiftData
                     ErrorReporter.report("background.wipe_failed")
                     return false
                 }
+                await iconCache.clear()
                 _ = secretStore.deleteAPIKey()
                 _ = secretStore.deleteEncryptionKey()
                 configStore.requiresRelogin = true
@@ -159,6 +164,18 @@ import SwiftData
             case .failure(.invalid):
                 ErrorReporter.report("background.sync_skipped_invalid_base_url")
                 return nil
+            }
+        }
+
+        private func pruneIconCache(context: ModelContext, baseURL: URL) async {
+            do {
+                let accounts = try context.fetch(FetchDescriptor<AccountEntity>())
+                let urls = Set(accounts.compactMap { account in
+                    AccountIconCache.iconURL(baseURL: baseURL, iconFilename: account.iconFilename)
+                })
+                await iconCache.prune(keeping: urls)
+            } catch {
+                report("background.icon_cache_prune_failed", [:])
             }
         }
     }

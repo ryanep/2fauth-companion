@@ -138,6 +138,10 @@ func usesAccountsGridLayout(for horizontalSizeClass: UserInterfaceSizeClass?) ->
     #endif
 }
 
+func canLoadAccountIcon(in scenePhase: ScenePhase) -> Bool {
+    scenePhase != .background
+}
+
 func sortAccountsForDisplay(_ accounts: [AccountEntity]) -> [AccountEntity] {
     accounts.sorted { lhs, rhs in
         let lhsService = (lhs.service ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -181,6 +185,8 @@ private struct AccountItemView: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            AccountIconView(account: account)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.service ?? String(localized: "accounts.unknown_service"))
                     .font(.title3.weight(.bold))
@@ -363,5 +369,99 @@ private struct AccountItemView: View {
     #else
         private func triggerLightHaptic() {}
         private func triggerCopyHaptic() {}
+    #endif
+}
+
+private struct AccountIconView: View {
+    @EnvironmentObject private var appModel: AppModel
+    @Environment(\.scenePhase) private var scenePhase
+    let account: AccountEntity
+
+    #if canImport(UIKit)
+        @State private var image: UIImage?
+        @State private var loadedFilename: String?
+    #endif
+
+    private var displayText: String {
+        let title = account.account.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = title.first else {
+            return "?"
+        }
+        return String(first).uppercased()
+    }
+
+    var body: some View {
+        ZStack {
+            #if canImport(UIKit)
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 36, height: 36)
+                } else {
+                    fallbackIcon
+                }
+            #else
+                fallbackIcon
+            #endif
+        }
+        .frame(width: 42, height: 42)
+        .fixedSize()
+        .accessibilityHidden(true)
+        #if canImport(UIKit)
+            .task(id: loadID) {
+                await loadIcon()
+            }
+        #endif
+    }
+
+    private var fallbackIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.accentColor.opacity(0.14))
+
+            Text(displayText)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(Color.accentColor)
+        }
+        .frame(width: 36, height: 36)
+    }
+
+    private var loadID: String {
+        "\(account.iconFilename ?? "")|\(scenePhase)"
+    }
+
+    #if canImport(UIKit)
+        @MainActor
+        private func loadIcon() async {
+            let requestedFilename = account.iconFilename
+            guard canLoadAccountIcon(in: scenePhase),
+                !Task.isCancelled
+            else {
+                return
+            }
+            guard image == nil || loadedFilename != requestedFilename else {
+                return
+            }
+
+            image = nil
+            loadedFilename = nil
+            guard
+                let url = appModel.iconURL(for: requestedFilename),
+                let data = await appModel.iconData(for: url, allowRemoteLoad: scenePhase == .active)
+            else {
+                return
+            }
+
+            guard let loadedImage = UIImage(data: data) else {
+                ErrorReporter.report("account.icon_decode_failed")
+                return
+            }
+            guard !Task.isCancelled, account.iconFilename == requestedFilename else {
+                return
+            }
+            image = loadedImage
+            loadedFilename = requestedFilename
+        }
     #endif
 }
