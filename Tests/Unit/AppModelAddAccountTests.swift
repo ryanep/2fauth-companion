@@ -352,6 +352,47 @@ final class AppModelAddAccountTests: XCTestCase {
         XCTAssertFalse(setup.repository.syncSawCancellation)
     }
 
+    func testUnknownCreationOutcomeBecomesCancellationWhenSessionChangesDuringReconciliation() async throws {
+        let reconciliationStarted = AsyncGate()
+        let releaseReconciliation = AsyncGate()
+        var scheduleCount = 0
+        var watchPushCount = 0
+        let setup = try makeSUT(
+            testName: #function,
+            scheduleBackgroundRefresh: { scheduleCount += 1 },
+            pushWatchSnapshot: { watchPushCount += 1 }
+        )
+        setup.repository.createHandler = {
+            throw APIError.transport("connection lost")
+        }
+        setup.repository.syncHandler = {
+            await reconciliationStarted.open()
+            await releaseReconciliation.wait()
+            return .transient("offline")
+        }
+
+        let creation = Task {
+            try await setup.appModel.addAccount(
+                preview: validPreview(),
+                service: "Example",
+                account: "person@example.com"
+            )
+        }
+        await reconciliationStarted.wait()
+        try replaceSession(in: setup)
+        await releaseReconciliation.open()
+
+        do {
+            try await creation.value
+            XCTFail("Expected stale reconciliation cancellation")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+        XCTAssertEqual(scheduleCount, 0)
+        XCTAssertEqual(watchPushCount, 0)
+    }
+
     func testCreatedAccountIconIsAllowedWhenRefreshFails() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
@@ -450,7 +491,12 @@ final class AppModelAddAccountTests: XCTestCase {
         setup.appModel.sessionState = .unlocked
     }
 
-    private func makeSUT(testName: String, iconCache: AccountIconCache = .shared) throws -> SUT {
+    private func makeSUT(
+        testName: String,
+        scheduleBackgroundRefresh: @escaping () -> Void = {},
+        pushWatchSnapshot: @escaping () -> Void = {},
+        iconCache: AccountIconCache = .shared
+    ) throws -> SUT {
         let container = try makeInMemoryModelContainer()
         let configStore = makeTestConfigStore(testName: testName)
         configStore.baseURLString = "https://example.com"
@@ -463,8 +509,8 @@ final class AppModelAddAccountTests: XCTestCase {
             configStore: configStore,
             secretStore: secretStore,
             repository: repository,
-            scheduleBackgroundRefresh: {},
-            pushWatchSnapshot: {},
+            scheduleBackgroundRefresh: scheduleBackgroundRefresh,
+            pushWatchSnapshot: pushWatchSnapshot,
             clearWatchSnapshot: {},
             iconCache: iconCache
         )

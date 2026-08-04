@@ -626,22 +626,27 @@ extension AppModel {
                 throw AccountRepositoryError.staleSession
             }
             await pruneIconCache(baseURL: baseURL, sessionRevision: sessionRevision)
-            _ = await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
+            _ = try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
         } catch AccountRepositoryError.staleSession {
             throw CancellationError()
         } catch AccountRepositoryError.createdButNotCached {
-            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
-                throw CancellationError()
-            }
-            if await refreshAfterAccountCreation(sessionIdentity: sessionIdentity) {
+            try requireCurrentSession(sessionIdentity)
+            let refreshed = try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
+            if refreshed {
                 return
             }
             throw AddAccountError.createdButNotCached
+        } catch APIError.unauthorized {
+            try requireCurrentSession(sessionIdentity)
+            throw await addAccountError(from: APIError.unauthorized)
         } catch {
-            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
-                throw CancellationError()
-            }
-            throw await createAccountError(from: error, sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
+            let mappedError = try await createAccountError(from: error, sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
+            throw mappedError
         }
     }
 
@@ -672,21 +677,19 @@ extension AppModel {
 }
 
 extension AppModel {
-    private func refreshAfterAccountCreation(sessionIdentity: SessionIdentity) async -> Bool {
-        guard isCurrentSession(
-            revision: sessionIdentity.revision,
-            baseURL: sessionIdentity.baseURL,
-            apiKey: sessionIdentity.apiKey
-        ), let result = await syncNow(expectedSession: sessionIdentity)
-        else {
+    private func refreshAfterAccountCreation(sessionIdentity: SessionIdentity) async throws -> Bool {
+        try requireCurrentSession(sessionIdentity)
+        guard let result = await syncNow(expectedSession: sessionIdentity) else {
+            try requireCurrentSession(sessionIdentity)
             return false
         }
+        try requireCurrentSession(sessionIdentity)
 
         switch result {
         case .success:
             return true
         case .stale:
-            return false
+            throw CancellationError()
         case .transient:
             scheduleBackgroundRefresh()
             pushWatchSnapshot()
@@ -730,33 +733,48 @@ extension AppModel {
     private func createAccountError(
         from error: any Error,
         sessionIdentity: SessionIdentity
-    ) async -> AddAccountError {
+    ) async throws -> AddAccountError {
         if error is CancellationError {
-            _ = await refreshAfterAccountCreationWithoutInheritedCancellation(sessionIdentity: sessionIdentity)
+            _ = try await refreshAfterAccountCreationWithoutInheritedCancellation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
             ErrorReporter.report("add_account.creation_outcome_unknown")
             return .creationOutcomeUnknown
         }
 
         switch error {
         case AccountRepositoryError.unsupportedOTPType:
-            _ = await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            _ = try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
             return .createdButNotCached
         case APIError.transport, APIError.decoding, APIError.server:
-            _ = await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            _ = try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
             ErrorReporter.report("add_account.creation_outcome_unknown")
             return .creationOutcomeUnknown
         default:
-            return await addAccountError(from: error)
+            let mappedError = await addAccountError(from: error)
+            try requireCurrentSession(sessionIdentity)
+            return mappedError
         }
     }
 
     private func refreshAfterAccountCreationWithoutInheritedCancellation(
         sessionIdentity: SessionIdentity
-    ) async -> Bool {
-        await Task { @MainActor [weak self] in
+    ) async throws -> Bool {
+        try await Task { @MainActor [weak self] in
             guard let self else { return false }
-            return await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            return try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
         }.value
+    }
+
+    private func requireCurrentSession(_ sessionIdentity: SessionIdentity) throws {
+        guard isCurrentSession(
+            revision: sessionIdentity.revision,
+            baseURL: sessionIdentity.baseURL,
+            apiKey: sessionIdentity.apiKey
+        ) else {
+            throw CancellationError()
+        }
     }
 }
 

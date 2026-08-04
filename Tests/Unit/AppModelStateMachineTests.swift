@@ -561,7 +561,7 @@ final class AppModelStateMachineTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let url = URL(string: "https://example.com/storage/icons/github.png")!
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: visiblePNGData(), for: url)
+        await writer.seedFixtureData(visiblePNGData(), for: url, sessionRevision: 0)
         let cache = AccountIconCache(cacheDirectory: directory)
         let setup = try makeSUT(testName: #function, iconCache: cache)
         setup.configStore.baseURLString = "https://example.com"
@@ -890,8 +890,8 @@ final class AppModelStateMachineTests: XCTestCase {
         let keptURL = URL(string: "https://example.com/storage/icons/github.png")!
         let staleURL = URL(string: "https://example.com/storage/icons/gitlab.png")!
 
-        await cache.cache(data: Data("kept".utf8), for: keptURL)
-        await cache.cache(data: Data("stale".utf8), for: staleURL)
+        await cache.seedFixtureData(Data("kept".utf8), for: keptURL, sessionRevision: 0)
+        await cache.seedFixtureData(Data("stale".utf8), for: staleURL, sessionRevision: 0)
 
         await cache.prune(keeping: [keptURL], sessionRevision: 0)
 
@@ -911,7 +911,7 @@ final class AppModelStateMachineTests: XCTestCase {
         let replacementURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
 
         await cache.advanceSession(to: 2)
-        await cache.cache(data: Data("replacement".utf8), for: replacementURL)
+        await cache.seedFixtureData(Data("replacement".utf8), for: replacementURL, sessionRevision: 2)
         await cache.prune(keeping: [], sessionRevision: 1)
 
         let hasReplacement = await cache.hasCachedData(for: replacementURL)
@@ -927,11 +927,30 @@ final class AppModelStateMachineTests: XCTestCase {
         let replacementURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
 
         await cache.advanceSession(to: 2)
-        await cache.cache(data: Data("replacement".utf8), for: replacementURL)
+        await cache.seedFixtureData(Data("replacement".utf8), for: replacementURL, sessionRevision: 2)
         await cache.clear(sessionRevision: 1)
 
         let hasReplacement = await cache.hasCachedData(for: replacementURL)
         XCTAssertTrue(hasReplacement)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheRejectsStaleFixtureSeedAfterReplacementSessionAdmission() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let replacementURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
+        let staleURL = URL(string: "https://old.example/storage/icons/stale.png")!
+
+        await cache.advanceSession(to: 2)
+        await cache.seedFixtureData(Data("replacement".utf8), for: replacementURL, sessionRevision: 2)
+        await cache.seedFixtureData(Data("stale".utf8), for: staleURL, sessionRevision: 1)
+
+        let hasReplacement = await cache.hasCachedData(for: replacementURL)
+        let hasStale = await cache.hasCachedData(for: staleURL)
+        XCTAssertTrue(hasReplacement)
+        XCTAssertFalse(hasStale)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -945,7 +964,7 @@ final class AppModelStateMachineTests: XCTestCase {
         await cache.advanceSession(to: 1)
         await cache.prune(keeping: [], sessionRevision: 1)
         await cache.advanceSession(to: 2)
-        await cache.cache(data: visiblePNGData(), for: replacementURL)
+        await cache.seedFixtureData(visiblePNGData(), for: replacementURL, sessionRevision: 2)
 
         let loaded = await cache.imageData(
             for: replacementURL,
@@ -978,7 +997,7 @@ final class AppModelStateMachineTests: XCTestCase {
         gate.resume()
         await stalePrune.value
         await replacementAdmission.value
-        await cache.cache(data: visiblePNGData(), for: replacementURL)
+        await cache.seedFixtureData(visiblePNGData(), for: replacementURL, sessionRevision: 2)
 
         let loaded = await cache.imageData(
             for: replacementURL,
@@ -1001,7 +1020,7 @@ final class AppModelStateMachineTests: XCTestCase {
         let oldURL = URL(string: "https://old.example/storage/icons/old.png")!
         let replacementURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
         await cache.advanceSession(to: 1)
-        await cache.cache(data: Data("old".utf8), for: oldURL)
+        await cache.seedFixtureData(Data("old".utf8), for: oldURL, sessionRevision: 1)
 
         let staleClear = Task {
             await cache.clear(sessionRevision: 1)
@@ -1013,7 +1032,7 @@ final class AppModelStateMachineTests: XCTestCase {
         gate.resume()
         await staleClear.value
         await replacementAdmission.value
-        await cache.cache(data: Data("replacement".utf8), for: replacementURL)
+        await cache.seedFixtureData(Data("replacement".utf8), for: replacementURL, sessionRevision: 2)
 
         let hasReplacement = await cache.hasCachedData(for: replacementURL)
         XCTAssertTrue(hasReplacement)
@@ -1320,9 +1339,10 @@ final class AppModelStateMachineTests: XCTestCase {
             policy: iconCachePolicy(maximumDiskBytes: .max, maximumDiskFileCount: 3)
         )
         await cache.prune(keeping: Set(allowedURLs), sessionRevision: 0)
-        await cache.cache(data: sourceData, for: allowedURLs[0])
-        await cache.cache(data: sourceData, for: allowedURLs[1])
-        await cache.cache(data: sourceData, for: nonAllowedURL)
+        await cache.seedFixtureData(sourceData, for: allowedURLs[0], sessionRevision: 0)
+        await cache.seedFixtureData(sourceData, for: allowedURLs[1], sessionRevision: 0)
+        let fixtureWriter = AccountIconCache(cacheDirectory: directory)
+        await fixtureWriter.seedFixtureData(sourceData, for: nonAllowedURL, sessionRevision: 0)
 
         _ = await cache.imageData(for: allowedURLs[2])
 
@@ -1373,7 +1393,7 @@ final class AppModelStateMachineTests: XCTestCase {
             return (response, sourceData)
         }
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: sourceData, for: urls[0])
+        await writer.seedFixtureData(sourceData, for: urls[0], sessionRevision: 0)
         let oldestFile = try XCTUnwrap(
             FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
         )
@@ -1381,7 +1401,7 @@ final class AppModelStateMachineTests: XCTestCase {
             [.modificationDate: Date(timeIntervalSince1970: 1)],
             ofItemAtPath: oldestFile.path
         )
-        await writer.cache(data: sourceData, for: urls[1])
+        await writer.seedFixtureData(sourceData, for: urls[1], sessionRevision: 0)
         for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             where file != oldestFile
         {
@@ -1695,7 +1715,7 @@ final class AppModelStateMachineTests: XCTestCase {
         let releaseRasterizer = AsyncGate()
         let cancelledRasterizer = LockedCounter()
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: cachedData, for: url)
+        await writer.seedFixtureData(cachedData, for: url, sessionRevision: 0)
         let cacheFile = try XCTUnwrap(
             FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
         )
@@ -1776,7 +1796,7 @@ final class AppModelStateMachineTests: XCTestCase {
             }
         )
 
-        await cache.cache(data: svgData, for: url)
+        await cache.seedFixtureData(svgData, for: url, sessionRevision: 0)
 
         let migratedLoad = await cache.imageData(for: url)
         let cachedLoad = await cache.imageData(for: url)
@@ -1810,7 +1830,7 @@ final class AppModelStateMachineTests: XCTestCase {
             return (response, replacementData)
         }
         let cache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
-        await cache.cache(data: metadataOnlyData, for: url)
+        await cache.seedFixtureData(metadataOnlyData, for: url, sessionRevision: 0)
 
         let loadedData = await cache.imageData(for: url)
 
@@ -1865,7 +1885,7 @@ final class AppModelStateMachineTests: XCTestCase {
         let diskURL = URL(string: "https://example.com/storage/icons/cached.png")!
         let remoteURL = URL(string: "https://example.com/storage/icons/remote.png")!
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: visiblePNGData(), for: diskURL)
+        await writer.seedFixtureData(visiblePNGData(), for: diskURL, sessionRevision: 0)
         let initialFiles = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         let gate = ConcurrentOperationGate()
         let cache = AccountIconCache(
@@ -1916,7 +1936,7 @@ final class AppModelStateMachineTests: XCTestCase {
         let consumer = consumeIconUpdates(updates, completed: completed)
         await fulfillment(of: [completed], timeout: 1)
         let values = await consumer.value
-        await cache.cache(data: visiblePNGData(), for: url)
+        await cache.seedFixtureData(visiblePNGData(), for: url, sessionRevision: 1)
 
         XCTAssertTrue(values.isEmpty)
         XCTAssertTrue(gate.started.isEmpty)
@@ -1932,7 +1952,7 @@ final class AppModelStateMachineTests: XCTestCase {
         let refreshedData = visiblePNGData(color: .systemRed)
         let gate = ConcurrentOperationGate()
         let cacheWriter = AccountIconCache(cacheDirectory: directory)
-        await cacheWriter.cache(data: cachedData, for: url)
+        await cacheWriter.seedFixtureData(cachedData, for: url, sessionRevision: 0)
         let cacheFile = try XCTUnwrap(
             FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
         )
@@ -1985,7 +2005,7 @@ final class AppModelStateMachineTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let url = URL(string: "https://example.com/storage/icons/github.png")!
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: visiblePNGData(), for: url)
+        await writer.seedFixtureData(visiblePNGData(), for: url, sessionRevision: 0)
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
         let initialReceived = expectation(description: "initial icon")
@@ -1994,7 +2014,7 @@ final class AppModelStateMachineTests: XCTestCase {
         let loadedData = await cache.imageData(for: url, allowRemoteLoad: false)
         let initialData = try XCTUnwrap(loadedData)
 
-        await cache.cache(data: initialData, for: url)
+        await cache.seedFixtureData(initialData, for: url, sessionRevision: 0)
         await cache.clear(sessionRevision: 0)
         let values = await consumer.value
 
@@ -2010,7 +2030,7 @@ final class AppModelStateMachineTests: XCTestCase {
         let staleData = visiblePNGData()
         let refreshedData = visiblePNGData(color: .systemRed)
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: staleData, for: url)
+        await writer.seedFixtureData(staleData, for: url, sessionRevision: 0)
         let cacheFile = try XCTUnwrap(
             FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
         )
@@ -2095,7 +2115,7 @@ final class AppModelStateMachineTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let url = URL(string: "https://example.com/storage/icons/github.png")!
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: visiblePNGData(), for: url)
+        await writer.seedFixtureData(visiblePNGData(), for: url, sessionRevision: 0)
         let cacheFile = try XCTUnwrap(
             FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
         )
@@ -2130,7 +2150,7 @@ final class AppModelStateMachineTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let url = URL(string: "https://example.com/storage/icons/github.png")!
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: visiblePNGData(), for: url)
+        await writer.seedFixtureData(visiblePNGData(), for: url, sessionRevision: 0)
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
         let initialReceived = expectation(description: "initial icon")
@@ -2152,7 +2172,7 @@ final class AppModelStateMachineTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let url = URL(string: "https://example.com/storage/icons/github.png")!
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: visiblePNGData(), for: url)
+        await writer.seedFixtureData(visiblePNGData(), for: url, sessionRevision: 0)
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
         let initialReceived = expectation(description: "initial icon")
@@ -2174,7 +2194,7 @@ final class AppModelStateMachineTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let url = URL(string: "https://example.com/storage/icons/github.png")!
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: visiblePNGData(), for: url)
+        await writer.seedFixtureData(visiblePNGData(), for: url, sessionRevision: 0)
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
         let initialReceived = expectation(description: "initial icon")
@@ -2196,7 +2216,7 @@ final class AppModelStateMachineTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let cache = AccountIconCache(cacheDirectory: directory)
         let url = URL(string: "https://example.com/storage/icons/github.png")!
-        await cache.cache(data: visiblePNGData(), for: url)
+        await cache.seedFixtureData(visiblePNGData(), for: url, sessionRevision: 0)
         let setup = try makeSUT(testName: #function, iconCache: cache)
 
         await setup.appModel.logout()
@@ -2213,8 +2233,8 @@ final class AppModelStateMachineTests: XCTestCase {
         let cache = AccountIconCache(cacheDirectory: directory)
         let keptURL = URL(string: "https://example.com/storage/icons/github.png")!
         let staleURL = URL(string: "https://example.com/storage/icons/gitlab.png")!
-        await cache.cache(data: visiblePNGData(), for: keptURL)
-        await cache.cache(data: visiblePNGData(), for: staleURL)
+        await cache.seedFixtureData(visiblePNGData(), for: keptURL, sessionRevision: 0)
+        await cache.seedFixtureData(visiblePNGData(), for: staleURL, sessionRevision: 0)
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             let json = """
@@ -2284,7 +2304,11 @@ final class AppModelStateMachineTests: XCTestCase {
         )
         setup.modelContext.insert(replacement)
         try setup.modelContext.save()
-        await cache.cache(data: Data("replacement-icon".utf8), for: replacementIconURL)
+        await cache.seedFixtureData(
+            Data("replacement-icon".utf8),
+            for: replacementIconURL,
+            sessionRevision: setup.configStore.sessionRevision
+        )
 
         gate.resumeResponse()
         let result = await sync.value
@@ -2411,7 +2435,7 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let cache = AccountIconCache(cacheDirectory: directory)
         let iconURL = URL(string: "https://example.com/storage/icons/github.png")!
-        await cache.cache(data: Data("icon".utf8), for: iconURL)
+        await cache.seedFixtureData(Data("icon".utf8), for: iconURL, sessionRevision: 0)
         let setup = try makeSUT(testName: #function, iconCache: cache)
         setup.configStore.baseURLString = "https://example.com"
         try secretStore.saveAPIKey("api-key")
@@ -2479,7 +2503,7 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
             updatedAt: Date()
         ))
         try context.save()
-        await cache.cache(data: Data("replacement-icon".utf8), for: replacementIconURL)
+        await cache.seedFixtureData(Data("replacement-icon".utf8), for: replacementIconURL, sessionRevision: 0)
 
         gate.resumeResponse()
         _ = await sync.value
@@ -2531,7 +2555,7 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
             updatedAt: Date()
         ))
         try context.save()
-        await cache.cache(data: Data("replacement-icon".utf8), for: replacementIconURL)
+        await cache.seedFixtureData(Data("replacement-icon".utf8), for: replacementIconURL, sessionRevision: 0)
 
         gate.resumeResponse()
         _ = await sync.value

@@ -539,11 +539,20 @@ actor AccountIconCache {
         diskStore.prune(keeping: urls)
     }
 
-    func cache(data: Data, for url: URL) {
+    #if DEBUG
+    func seedFixtureData(_ data: Data, for url: URL, sessionRevision: Int) {
+        guard sessionRevision == self.sessionRevision,
+            !data.isEmpty,
+            data.count <= policy.maximumSourceBytes,
+            isAllowed(url)
+        else {
+            return
+        }
         diskStore.write(data, to: diskStore.cacheURL(for: url))
         urlRevisions[url, default: 0] += 1
         publishReplacementImageData(data, for: url)
     }
+    #endif
 
     func hasCachedData(for url: URL) -> Bool {
         diskStore.hasCachedData(for: url)
