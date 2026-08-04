@@ -168,6 +168,120 @@ private actor AsyncGate {
     }
 }
 
+private final class ConcurrentOperationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedValues: [String] = []
+    private var completions: [() -> Void] = []
+    private var resumeCredits = 0
+    private var activeCount = 0
+    private var peakActiveCount = 0
+
+    func suspend(value: String, completion: @escaping () -> Void) {
+        let shouldResume = lock.withLock {
+            startedValues.append(value)
+            activeCount += 1
+            peakActiveCount = max(peakActiveCount, activeCount)
+            if resumeCredits > 0 {
+                resumeCredits -= 1
+                activeCount -= 1
+                return true
+            }
+            completions.append(completion)
+            return false
+        }
+        if shouldResume { completion() }
+    }
+
+    func waitUntilStarted(_ count: Int) async {
+        while lock.withLock({ startedValues.count < count }) {
+            await Task.yield()
+        }
+    }
+
+    func resume(_ count: Int) {
+        for _ in 0..<count {
+            let completion = lock.withLock { () -> (() -> Void)? in
+                guard !completions.isEmpty else {
+                    resumeCredits += 1
+                    return nil
+                }
+                activeCount -= 1
+                return completions.removeFirst()
+            }
+            completion?()
+        }
+    }
+
+    var started: [String] {
+        lock.withLock { startedValues }
+    }
+
+    var peak: Int {
+        lock.withLock { peakActiveCount }
+    }
+}
+
+private final class GatedIconURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var gate: ConcurrentOperationGate?
+    nonisolated(unsafe) static var sourceData = Data()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let gate = Self.gate, let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        gate.suspend(value: url.lastPathComponent) { [weak self] in
+            guard let self else { return }
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Self.sourceData)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+private func makeGatedIconURLSession(gate: ConcurrentOperationGate, sourceData: Data) -> URLSession {
+    GatedIconURLProtocol.gate = gate
+    GatedIconURLProtocol.sourceData = sourceData
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [GatedIconURLProtocol.self]
+    return URLSession(configuration: configuration)
+}
+
+private actor RasterizationGate {
+    private var startedValues: [String] = []
+    private var activeCount = 0
+    private var peakActiveCount = 0
+    private let release = AsyncGate()
+
+    func suspend(value: String) async {
+        startedValues.append(value)
+        activeCount += 1
+        peakActiveCount = max(peakActiveCount, activeCount)
+        await release.wait()
+        activeCount -= 1
+    }
+
+    func waitUntilStarted(_ count: Int) async {
+        while startedValues.count < count {
+            await Task.yield()
+        }
+    }
+
+    func resume() async {
+        await release.open()
+    }
+
+    var started: [String] { startedValues }
+    var peak: Int { peakActiveCount }
+}
+
 @MainActor
 final class AppModelStateMachineTests: XCTestCase {
     private struct SUT {
@@ -190,6 +304,110 @@ final class AppModelStateMachineTests: XCTestCase {
 
         private func transparentPNGData() -> Data {
             UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }
+        }
+
+        private func visiblePNGData(dimension: Int, metadata: String? = nil) throws -> Data {
+            let size = CGSize(width: dimension, height: dimension)
+            let data = UIGraphicsImageRenderer(size: size).pngData { context in
+                UIColor.systemBlue.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+            }
+            guard let metadata else {
+                return data
+            }
+            let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+            let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            let output = NSMutableData()
+            let destination = try XCTUnwrap(CGImageDestinationCreateWithData(output, "public.png" as CFString, 1, nil))
+            let properties: [CFString: Any] = [
+                kCGImagePropertyPNGDictionary: [kCGImagePropertyPNGTitle: metadata]
+            ]
+            CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+            XCTAssertTrue(CGImageDestinationFinalize(destination))
+            return output as Data
+        }
+
+        private func assertNormalizedIcon(_ data: Data?, sourceData: Data? = nil) throws {
+            let data = try XCTUnwrap(data)
+            XCTAssertTrue(data.starts(with: [0x89, 0x50, 0x4E, 0x47]))
+            let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+            let properties = try XCTUnwrap(
+                CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            )
+            XCTAssertEqual((properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue, 128)
+            XCTAssertEqual((properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue, 128)
+            let pngProperties = properties[kCGImagePropertyPNGDictionary] as? [CFString: Any]
+            XCTAssertNil(pngProperties?[kCGImagePropertyPNGTitle])
+            let image = try XCTUnwrap(try XCTUnwrap(UIImage(data: data)).cgImage)
+            var pixel = [UInt8](repeating: 0, count: 4)
+            let context = try XCTUnwrap(CGContext(
+                data: &pixel,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            XCTAssertGreaterThan(pixel[3], 0)
+            if let sourceData {
+                XCTAssertNotEqual(data, sourceData)
+            }
+        }
+
+        private func normalizedIconPixels(_ data: Data?) throws -> [UInt8] {
+            let image = try XCTUnwrap(UIImage(data: try XCTUnwrap(data)))
+            let target = CGFloat(128)
+            let scale = min(target / image.size.width, target / image.size.height)
+            let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            let drawOrigin = CGPoint(x: (target - drawSize.width) / 2, y: (target - drawSize.height) / 2)
+            let format = UIGraphicsImageRendererFormat()
+            format.opaque = false
+            format.scale = 1
+            let normalizedImage = UIGraphicsImageRenderer(
+                size: CGSize(width: target, height: target),
+                format: format
+            ).image { _ in
+                image.draw(in: CGRect(origin: drawOrigin, size: drawSize))
+            }
+            let cgImage = try XCTUnwrap(normalizedImage.cgImage)
+            var pixels = [UInt8](repeating: 0, count: 128 * 128 * 4)
+            let context = try XCTUnwrap(CGContext(
+                data: &pixels,
+                width: 128,
+                height: 128,
+                bitsPerComponent: 8,
+                bytesPerRow: 128 * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 128, height: 128))
+            return pixels
+        }
+
+        private func assertSameIconSemantics(_ actual: Data?, _ expected: Data?) throws {
+            XCTAssertEqual(try normalizedIconPixels(actual), try normalizedIconPixels(expected))
+        }
+
+        private func iconCachePolicy(
+            maximumMemoryBytes: Int = 16 * 1_024 * 1_024,
+            maximumDiskBytes: Int = 32 * 1_024 * 1_024,
+            maximumDiskFileCount: Int = 256,
+            maximumConcurrentDownloads: Int = 4,
+            maximumConcurrentRasterizations: Int = 4
+        ) -> AccountIconCachePolicy {
+            AccountIconCachePolicy(
+                maximumSourceBytes: 2 * 1_024 * 1_024,
+                maximumSourceDimension: 2_048,
+                maximumSourcePixels: 4_194_304,
+                normalizedDimension: 128,
+                maximumMemoryBytes: maximumMemoryBytes,
+                maximumDiskBytes: maximumDiskBytes,
+                maximumDiskFileCount: maximumDiskFileCount,
+                maximumConcurrentDownloads: maximumConcurrentDownloads,
+                maximumConcurrentRasterizations: maximumConcurrentRasterizations
+            )
         }
 
     #endif
@@ -637,9 +855,237 @@ final class AppModelStateMachineTests: XCTestCase {
         MockURLProtocol.requestHandler = nil
         let cachedLoad = await cache.imageData(for: url)
 
-        XCTAssertEqual(firstLoad, rasterizedData)
-        XCTAssertEqual(cachedLoad, rasterizedData)
+        try assertSameIconSemantics(firstLoad, rasterizedData)
+        try assertSameIconSemantics(cachedLoad, rasterizedData)
 
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheNormalizesSmallAndLargeRasterSources() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let smallURL = URL(string: "https://example.com/storage/icons/small.png")!
+        let largeURL = URL(string: "https://example.com/storage/icons/large.png")!
+        let sources = [
+            smallURL: try visiblePNGData(dimension: 16, metadata: "small source"),
+            largeURL: try visiblePNGData(dimension: 512, metadata: "large source")
+        ]
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, sources[request.url!]!)
+        }
+        let cache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
+
+        for (url, sourceData) in sources {
+            try assertNormalizedIcon(await cache.imageData(for: url), sourceData: sourceData)
+        }
+
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheNormalizesSmallAndLargeSVGRasterizerOutputs() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let smallURL = URL(string: "https://example.com/storage/icons/small.svg")!
+        let largeURL = URL(string: "https://example.com/storage/icons/large.svg")!
+        let smallSVG = Data("<svg id=\"small\"></svg>".utf8)
+        let largeSVG = Data("<svg id=\"large\"></svg>".utf8)
+        let outputs = [
+            smallSVG: try visiblePNGData(dimension: 16, metadata: "small rasterizer output"),
+            largeSVG: try visiblePNGData(dimension: 512, metadata: "large rasterizer output")
+        ]
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, request.url == smallURL ? smallSVG : largeSVG)
+        }
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            rasterizeSVG: { outputs[$0] }
+        )
+
+        try assertNormalizedIcon(await cache.imageData(for: smallURL), sourceData: outputs[smallSVG])
+        try assertNormalizedIcon(await cache.imageData(for: largeURL), sourceData: outputs[largeSVG])
+
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheEvictsLeastRecentlyUsedMemoryEntryAtExactByteLimit() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let sourceData = try visiblePNGData(dimension: 128)
+        let urls = (1...3).map { URL(string: "https://example.com/storage/icons/\($0).png")! }
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, sourceData)
+        }
+        let probeCache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
+        let probedData = await probeCache.imageData(for: urls[0])
+        let normalizedData = try XCTUnwrap(probedData)
+        await probeCache.clear(sessionRevision: 0)
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            policy: iconCachePolicy(maximumMemoryBytes: normalizedData.count * 2)
+        )
+
+        _ = await cache.imageData(for: urls[0])
+        _ = await cache.imageData(for: urls[1])
+        _ = await cache.imageData(for: urls[0])
+        _ = await cache.imageData(for: urls[2])
+        try FileManager.default.removeItem(at: directory)
+
+        let firstData = await cache.imageData(for: urls[0], allowRemoteLoad: false)
+        let secondData = await cache.imageData(for: urls[1], allowRemoteLoad: false)
+        let thirdData = await cache.imageData(for: urls[2], allowRemoteLoad: false)
+        XCTAssertNotNil(firstData)
+        XCTAssertNil(secondData)
+        XCTAssertNotNil(thirdData)
+    }
+
+    func testAccountIconCacheTrimsOldestDiskEntriesAtExactAggregateLimits() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let sourceData = try visiblePNGData(dimension: 128)
+        let urls = (1...3).map { URL(string: "https://example.com/storage/icons/disk-\($0).png")! }
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, sourceData)
+        }
+        let probeDirectory = directory
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(UUID().uuidString)-probe", isDirectory: true)
+        let probeCache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: probeDirectory)
+        let probedData = await probeCache.imageData(for: urls[0])
+        let normalizedData = try XCTUnwrap(probedData)
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            policy: iconCachePolicy(
+                maximumDiskBytes: normalizedData.count * 2,
+                maximumDiskFileCount: 2
+            )
+        )
+
+        for url in urls {
+            _ = await cache.imageData(for: url)
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let hasFirst = await cache.hasCachedData(for: urls[0])
+        let hasSecond = await cache.hasCachedData(for: urls[1])
+        let hasThird = await cache.hasCachedData(for: urls[2])
+        XCTAssertFalse(hasFirst)
+        XCTAssertTrue(hasSecond)
+        XCTAssertTrue(hasThird)
+        let files = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey]
+        )
+        let byteCount = try files.reduce(0) { result, url in
+            result + (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+        }
+        XCTAssertEqual(files.count, 2)
+        XCTAssertLessThanOrEqual(byteCount, normalizedData.count * 2)
+        try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.removeItem(at: probeDirectory)
+    }
+
+    func testAccountIconCacheBoundsConcurrentDownloads() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let gate = ConcurrentOperationGate()
+        let sourceData = try visiblePNGData(dimension: 16)
+        let cache = AccountIconCache(
+            session: makeGatedIconURLSession(gate: gate, sourceData: sourceData),
+            cacheDirectory: directory,
+            policy: iconCachePolicy(maximumConcurrentDownloads: 2)
+        )
+        let loads = (1...5).map { index in
+            Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/download-\(index).png")!) }
+        }
+
+        await gate.waitUntilStarted(2)
+        try await Task.sleep(for: .milliseconds(100))
+        let peak = gate.peak
+        gate.resume(5)
+        for load in loads { _ = await load.value }
+
+        XCTAssertEqual(peak, 2)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheRemovesCancelledDownloadWaiter() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let gate = ConcurrentOperationGate()
+        let sourceData = try visiblePNGData(dimension: 16)
+        let cache = AccountIconCache(
+            session: makeGatedIconURLSession(gate: gate, sourceData: sourceData),
+            cacheDirectory: directory,
+            policy: iconCachePolicy(maximumConcurrentDownloads: 1)
+        )
+        let first = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/first.png")!) }
+        await gate.waitUntilStarted(1)
+        let cancelled = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/cancelled.png")!) }
+        try await Task.sleep(for: .milliseconds(50))
+        cancelled.cancel()
+        let last = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/last.png")!) }
+        try await Task.sleep(for: .milliseconds(50))
+        gate.resume(3)
+        _ = await first.value
+        let cancelledValue = await cancelled.value
+        _ = await last.value
+
+        XCTAssertNil(cancelledValue)
+        XCTAssertEqual(gate.started, ["first.png", "last.png"])
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheBoundsConcurrentRasterizationsAndRemovesCancelledWaiter() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let gate = RasterizationGate()
+        let rasterData = try visiblePNGData(dimension: 16)
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data("<svg id=\"\(request.url!.lastPathComponent)\"></svg>".utf8))
+        }
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            rasterizeSVG: { data in
+                let value = String(decoding: data, as: UTF8.self)
+                await gate.suspend(value: value)
+                return rasterData
+            },
+            policy: iconCachePolicy(maximumConcurrentRasterizations: 1)
+        )
+        let first = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/first.svg")!) }
+        await gate.waitUntilStarted(1)
+        let cancelled = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/cancelled.svg")!) }
+        try await Task.sleep(for: .milliseconds(50))
+        cancelled.cancel()
+        let last = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/last.svg")!) }
+        try await Task.sleep(for: .milliseconds(50))
+        let peak = await gate.peak
+        await gate.resume()
+        _ = await first.value
+        let cancelledValue = await cancelled.value
+        _ = await last.value
+        let started = await gate.started
+
+        XCTAssertEqual(peak, 1)
+        XCTAssertNil(cancelledValue)
+        XCTAssertEqual(started.count, 2)
+        XCTAssertFalse(started.contains { $0.contains("cancelled.svg") })
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -695,8 +1141,10 @@ final class AppModelStateMachineTests: XCTestCase {
         }
         let firstResult = await firstLoad.value
 
-        XCTAssertEqual(firstResult, rasterizedData)
-        XCTAssertEqual(results, Array(repeating: rasterizedData, count: 4))
+        try assertSameIconSemantics(firstResult, rasterizedData)
+        for result in results {
+            try assertSameIconSemantics(result, rasterizedData)
+        }
         XCTAssertEqual(requestCounter.count, 1)
         XCTAssertEqual(rasterizeCounter.count, 1)
 
@@ -777,7 +1225,7 @@ final class AppModelStateMachineTests: XCTestCase {
         let cancelledResult = await cancelledWaiter.value
         let remainingResult = await remainingWaiter.value
         XCTAssertNil(cancelledResult)
-        XCTAssertEqual(remainingResult, rasterData)
+        try assertSameIconSemantics(remainingResult, rasterData)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -818,13 +1266,13 @@ final class AppModelStateMachineTests: XCTestCase {
         )
 
         let loadedData = await cache.imageData(for: url)
-        XCTAssertEqual(loadedData, cachedData)
+        try assertSameIconSemantics(loadedData, cachedData)
         await rasterizerStarted.wait()
         await cache.cancelUnownedRefreshes()
         await releaseRasterizer.open()
 
         XCTAssertEqual(cancelledRasterizer.count, 1)
-        XCTAssertEqual(try Data(contentsOf: cacheFile), cachedData)
+        try assertSameIconSemantics(try Data(contentsOf: cacheFile), cachedData)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -878,8 +1326,8 @@ final class AppModelStateMachineTests: XCTestCase {
         let migratedLoad = await cache.imageData(for: url)
         let cachedLoad = await cache.imageData(for: url)
 
-        XCTAssertEqual(migratedLoad, rasterizedData)
-        XCTAssertEqual(cachedLoad, rasterizedData)
+        try assertSameIconSemantics(migratedLoad, rasterizedData)
+        try assertSameIconSemantics(cachedLoad, rasterizedData)
 
         try? FileManager.default.removeItem(at: directory)
     }
@@ -911,7 +1359,7 @@ final class AppModelStateMachineTests: XCTestCase {
 
         let loadedData = await cache.imageData(for: url)
 
-        XCTAssertEqual(loadedData, replacementData)
+        try assertSameIconSemantics(loadedData, replacementData)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -979,11 +1427,14 @@ final class AppModelStateMachineTests: XCTestCase {
 
         let loadedData = await cache.imageData(for: url)
 
-        XCTAssertEqual(loadedData, cachedData)
-        for _ in 0..<50 where (try? Data(contentsOf: cacheFile)) != refreshedData {
+        try assertSameIconSemantics(loadedData, cachedData)
+        let refreshedPixels = try normalizedIconPixels(refreshedData)
+        var storedData = try Data(contentsOf: cacheFile)
+        for _ in 0..<50 where (try? normalizedIconPixels(storedData)) != refreshedPixels {
             try await Task.sleep(for: .milliseconds(10))
+            storedData = try Data(contentsOf: cacheFile)
         }
-        XCTAssertEqual(try Data(contentsOf: cacheFile), refreshedData)
+        try assertSameIconSemantics(storedData, refreshedData)
         try? FileManager.default.removeItem(at: directory)
     }
 

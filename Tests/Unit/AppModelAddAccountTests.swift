@@ -276,7 +276,21 @@ final class AppModelAddAccountTests: XCTestCase {
         )
         let loadedData = await setup.appModel.iconData(for: iconURL)
 
-        XCTAssertEqual(loadedData, iconData)
+        let image = try XCTUnwrap(UIImage(data: try XCTUnwrap(loadedData)))
+        XCTAssertEqual(image.size, CGSize(width: 128, height: 128))
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = try XCTUnwrap(CGContext(
+            data: &pixel,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.draw(try XCTUnwrap(image.cgImage), in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        XCTAssertGreaterThan(pixel[3], 0)
+        XCTAssertGreaterThan(pixel[2], pixel[0])
         try? FileManager.default.removeItem(at: directory)
     }
 

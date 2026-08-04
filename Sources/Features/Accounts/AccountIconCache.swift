@@ -10,6 +10,30 @@ import ImageIO
     import WebKit
 #endif
 
+struct AccountIconCachePolicy: Sendable {
+    let maximumSourceBytes: Int
+    let maximumSourceDimension: Int
+    let maximumSourcePixels: Int
+    let normalizedDimension: Int
+    let maximumMemoryBytes: Int
+    let maximumDiskBytes: Int
+    let maximumDiskFileCount: Int
+    let maximumConcurrentDownloads: Int
+    let maximumConcurrentRasterizations: Int
+
+    static let production = AccountIconCachePolicy(
+        maximumSourceBytes: 2 * 1_024 * 1_024,
+        maximumSourceDimension: 2_048,
+        maximumSourcePixels: 4_194_304,
+        normalizedDimension: 128,
+        maximumMemoryBytes: 16 * 1_024 * 1_024,
+        maximumDiskBytes: 32 * 1_024 * 1_024,
+        maximumDiskFileCount: 256,
+        maximumConcurrentDownloads: 4,
+        maximumConcurrentRasterizations: 4
+    )
+}
+
 actor AccountIconCache {
     private struct InFlightImageLoad {
         let id: UUID
@@ -27,16 +51,29 @@ actor AccountIconCache {
     private struct MemoryImageData {
         let data: Data
         let modificationDate: Date
+        var accessOrder: UInt64
+    }
+
+    private struct SlotWaiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    private struct DiskFile {
+        let url: URL
+        let byteCount: Int
+        let modificationDate: Date
+        let isAllowed: Bool
+    }
+
+    private enum SlotKind: Sendable {
+        case download
+        case rasterization
     }
 
     static let shared = AccountIconCache()
 
-    private static let maximumDownloadBytes = 2 * 1_024 * 1_024
-    private static let maximumRasterDimension = 2_048
-    private static let maximumRasterPixels = 4_194_304
-    private static let cachedRasterDimension = 128
     private static let maximumCacheAge: TimeInterval = 7 * 24 * 60 * 60
-    private static let maximumConcurrentRasterizations = 4
     private static let cacheVersion = "2"
 
     typealias SVGRasterizer = @Sendable (Data) async -> Data?
@@ -45,24 +82,31 @@ actor AccountIconCache {
     private let fileManager: FileManager
     private let cacheDirectory: URL
     private let rasterizeSVG: SVGRasterizer
+    private let policy: AccountIconCachePolicy
     private var inFlightImageLoads: [URL: InFlightImageLoad] = [:]
     private var memoryImageData: [URL: MemoryImageData] = [:]
+    private var memoryByteCount = 0
+    private var memoryAccessOrder: UInt64 = 0
     private var cacheEpoch = 0
     private var sessionRevision = 0
     private var allowedURLs: Set<URL>?
     private var urlRevisions: [URL: Int] = [:]
+    private var activeDownloadCount = 0
+    private var downloadWaiters: [SlotWaiter] = []
     private var activeRasterizationCount = 0
-    private var rasterizationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var rasterizationWaiters: [SlotWaiter] = []
 
     init(
         session: URLSession? = nil,
         fileManager: FileManager = .default,
         cacheDirectory: URL? = nil,
-        rasterizeSVG: @escaping SVGRasterizer = AccountIconCache.defaultRasterizeSVG
+        rasterizeSVG: @escaping SVGRasterizer = AccountIconCache.defaultRasterizeSVG,
+        policy: AccountIconCachePolicy = .production
     ) {
         self.session = session ?? Self.makeSession()
         self.fileManager = fileManager
         self.rasterizeSVG = rasterizeSVG
+        self.policy = policy
         self.cacheDirectory = cacheDirectory ?? Self.defaultCacheDirectory(fileManager: fileManager)
     }
 
@@ -143,7 +187,7 @@ actor AccountIconCache {
     }
 
     func imageData(for url: URL, allowRemoteLoad: Bool = true) async -> Data? {
-        if let entry = memoryImageData[url] {
+        if let entry = memoryEntry(for: url) {
             if allowRemoteLoad,
                 !isFresh(modificationDate: entry.modificationDate),
                 inFlightImageLoads[url] == nil
@@ -156,18 +200,18 @@ actor AccountIconCache {
         let cachedURL = cacheURL(for: url)
         let epoch = cacheEpoch
         let revision = urlRevisions[url, default: 0]
-        let cachedFile = await Self.readCachedFile(at: cachedURL)
+        let cachedFile = await Self.readCachedFile(at: cachedURL, policy: policy)
         guard !Task.isCancelled, epoch == cacheEpoch, isAllowed(url)
         else {
             return nil
         }
         guard revision == urlRevisions[url, default: 0] else {
-            return memoryImageData[url]?.data
+            return memoryEntry(for: url)?.data
         }
 
         if let cachedFile,
             !cachedFile.data.isEmpty,
-            cachedFile.data.count <= Self.maximumDownloadBytes
+            cachedFile.data.count <= policy.maximumSourceBytes
         {
             let data = cachedFile.data
             if isSVGData(data, from: url) {
@@ -176,13 +220,24 @@ actor AccountIconCache {
                 }
                 return await coalescedImageData(for: url, cachedURL: cachedURL, cachedData: data)
             }
-            if isRasterImageData(data), cachedFile.hasValidRasterMetadata {
+            if isRasterImageData(data), cachedFile.hasValidRasterMetadata,
+                let normalizedData = normalizedRasterData(data),
+                hasVisibleRasterContent(normalizedData)
+            {
                 let modificationDate = cachedFile.modificationDate ?? .distantPast
-                memoryImageData[url] = MemoryImageData(data: data, modificationDate: modificationDate)
+                if normalizedData != data {
+                    try? normalizedData.write(to: cachedURL, options: [.atomic])
+                    try? fileManager.setAttributes(
+                        [.modificationDate: modificationDate],
+                        ofItemAtPath: cachedURL.path
+                    )
+                    trimDiskCache()
+                }
+                storeInMemory(normalizedData, for: url, modificationDate: modificationDate)
                 if allowRemoteLoad, !isFresh(modificationDate: modificationDate) {
                     refreshInBackground(url: url, cachedURL: cachedURL)
                 }
-                return data
+                return normalizedData
             }
             try? fileManager.removeItem(at: cachedURL)
         }
@@ -335,8 +390,9 @@ actor AccountIconCache {
         }
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         try? cacheData.write(to: cachedURL, options: [.atomic])
+        trimDiskCache()
         urlRevisions[url] = revision + 1
-        memoryImageData[url] = MemoryImageData(data: cacheData, modificationDate: Date())
+        storeInMemory(cacheData, for: url, modificationDate: Date())
         return cacheData
     }
 
@@ -366,6 +422,7 @@ actor AccountIconCache {
         }
         inFlightImageLoads.removeAll()
         memoryImageData.removeAll()
+        memoryByteCount = 0
         cacheEpoch += 1
         allowedURLs = nil
         urlRevisions.removeAll()
@@ -394,6 +451,7 @@ actor AccountIconCache {
         }
         allowedURLs = urls
         memoryImageData = memoryImageData.filter { urls.contains($0.key) }
+        memoryByteCount = memoryImageData.values.reduce(0) { $0 + $1.data.count }
         urlRevisions = urlRevisions.filter { urls.contains($0.key) }
 
         guard let files = try? fileManager.contentsOfDirectory(
@@ -420,10 +478,18 @@ actor AccountIconCache {
     }
 
     private func downloadImageData(from url: URL) async throws -> Data? {
+        guard await acquireSlot(.download) else {
+            throw CancellationError()
+        }
+        defer { releaseSlot(.download) }
+        guard !Task.isCancelled else {
+            throw CancellationError()
+        }
+
         let (bytes, response) = try await session.bytes(from: url)
         guard let httpResponse = response as? HTTPURLResponse,
             httpResponse.statusCode == 200,
-            httpResponse.expectedContentLength <= Int64(Self.maximumDownloadBytes),
+            httpResponse.expectedContentLength <= Int64(policy.maximumSourceBytes),
             let responseURL = httpResponse.url,
             Self.sameOrigin(responseURL, url),
             responseURL.standardized.path == url.standardized.path
@@ -436,7 +502,10 @@ actor AccountIconCache {
             data.reserveCapacity(Int(httpResponse.expectedContentLength))
         }
         for try await byte in bytes {
-            guard data.count < Self.maximumDownloadBytes else {
+            guard !Task.isCancelled else {
+                throw CancellationError()
+            }
+            guard data.count < policy.maximumSourceBytes else {
                 throw URLError(.dataLengthExceedsMaximum)
             }
             data.append(byte)
@@ -473,8 +542,10 @@ actor AccountIconCache {
         epoch: Int,
         revision: Int
     ) async -> Data? {
-        await acquireRasterizationSlot()
-        defer { releaseRasterizationSlot() }
+        guard await acquireSlot(.rasterization) else {
+            return nil
+        }
+        defer { releaseSlot(.rasterization) }
 
         guard isCurrent(url: sourceURL, epoch: epoch, revision: revision) else {
             return nil
@@ -482,7 +553,8 @@ actor AccountIconCache {
 
         guard let rasterizedData = await rasterizeSVG(data), !rasterizedData.isEmpty,
             isRasterImageData(rasterizedData),
-            hasVisibleRasterContent(rasterizedData)
+            let normalizedData = normalizedRasterData(rasterizedData),
+            hasVisibleRasterContent(normalizedData)
         else {
             ErrorReporter.report("account.icon_svg_rasterize_failed")
             return nil
@@ -492,10 +564,11 @@ actor AccountIconCache {
             return nil
         }
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-        try? rasterizedData.write(to: cachedURL, options: [.atomic])
+        try? normalizedData.write(to: cachedURL, options: [.atomic])
+        trimDiskCache()
         urlRevisions[sourceURL] = revision + 1
-        memoryImageData[sourceURL] = MemoryImageData(data: rasterizedData, modificationDate: Date())
-        return rasterizedData
+        storeInMemory(normalizedData, for: sourceURL, modificationDate: Date())
+        return normalizedData
     }
 
     private func isCurrent(url: URL, epoch: Int, revision: Int) -> Bool {
@@ -509,22 +582,187 @@ actor AccountIconCache {
         allowedURLs?.contains(url) ?? true
     }
 
-    private func acquireRasterizationSlot() async {
-        guard activeRasterizationCount >= Self.maximumConcurrentRasterizations else {
-            activeRasterizationCount += 1
+    private func acquireSlot(_ kind: SlotKind) async -> Bool {
+        guard !Task.isCancelled else {
+            return false
+        }
+        let waiterID = UUID()
+        let acquired = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                if activeSlotCount(for: kind) < maximumSlotCount(for: kind) {
+                    incrementActiveSlotCount(for: kind)
+                    continuation.resume(returning: true)
+                } else {
+                    appendSlotWaiter(SlotWaiter(id: waiterID, continuation: continuation), for: kind)
+                }
+            }
+        } onCancel: {
+            Task {
+                await self.cancelSlotWaiter(waiterID, for: kind)
+            }
+        }
+        guard acquired, !Task.isCancelled else {
+            if acquired {
+                releaseSlot(kind)
+            }
+            return false
+        }
+        return true
+    }
+
+    private func cancelSlotWaiter(_ id: UUID, for kind: SlotKind) {
+        guard let index = slotWaiters(for: kind).firstIndex(where: { $0.id == id }) else {
             return
         }
-        await withCheckedContinuation { continuation in
-            rasterizationWaiters.append(continuation)
+        let waiter = removeSlotWaiter(at: index, for: kind)
+        waiter.continuation.resume(returning: false)
+    }
+
+    private func releaseSlot(_ kind: SlotKind) {
+        if let waiter = popFirstSlotWaiter(for: kind) {
+            waiter.continuation.resume(returning: true)
+        } else {
+            decrementActiveSlotCount(for: kind)
         }
     }
 
-    private func releaseRasterizationSlot() {
-        guard !rasterizationWaiters.isEmpty else {
-            activeRasterizationCount -= 1
+    private func activeSlotCount(for kind: SlotKind) -> Int {
+        switch kind {
+        case .download: activeDownloadCount
+        case .rasterization: activeRasterizationCount
+        }
+    }
+
+    private func maximumSlotCount(for kind: SlotKind) -> Int {
+        switch kind {
+        case .download: policy.maximumConcurrentDownloads
+        case .rasterization: policy.maximumConcurrentRasterizations
+        }
+    }
+
+    private func incrementActiveSlotCount(for kind: SlotKind) {
+        switch kind {
+        case .download: activeDownloadCount += 1
+        case .rasterization: activeRasterizationCount += 1
+        }
+    }
+
+    private func decrementActiveSlotCount(for kind: SlotKind) {
+        switch kind {
+        case .download: activeDownloadCount -= 1
+        case .rasterization: activeRasterizationCount -= 1
+        }
+    }
+
+    private func slotWaiters(for kind: SlotKind) -> [SlotWaiter] {
+        switch kind {
+        case .download: downloadWaiters
+        case .rasterization: rasterizationWaiters
+        }
+    }
+
+    private func appendSlotWaiter(_ waiter: SlotWaiter, for kind: SlotKind) {
+        switch kind {
+        case .download: downloadWaiters.append(waiter)
+        case .rasterization: rasterizationWaiters.append(waiter)
+        }
+    }
+
+    private func removeSlotWaiter(at index: Int, for kind: SlotKind) -> SlotWaiter {
+        switch kind {
+        case .download: downloadWaiters.remove(at: index)
+        case .rasterization: rasterizationWaiters.remove(at: index)
+        }
+    }
+
+    private func popFirstSlotWaiter(for kind: SlotKind) -> SlotWaiter? {
+        guard !slotWaiters(for: kind).isEmpty else {
+            return nil
+        }
+        return removeSlotWaiter(at: 0, for: kind)
+    }
+
+    private func memoryEntry(for url: URL) -> MemoryImageData? {
+        guard var entry = memoryImageData[url] else {
+            return nil
+        }
+        memoryAccessOrder &+= 1
+        entry.accessOrder = memoryAccessOrder
+        memoryImageData[url] = entry
+        return entry
+    }
+
+    private func storeInMemory(_ data: Data, for url: URL, modificationDate: Date) {
+        if let existing = memoryImageData.removeValue(forKey: url) {
+            memoryByteCount -= existing.data.count
+        }
+        memoryAccessOrder &+= 1
+        memoryImageData[url] = MemoryImageData(
+            data: data,
+            modificationDate: modificationDate,
+            accessOrder: memoryAccessOrder
+        )
+        memoryByteCount += data.count
+
+        while memoryByteCount > policy.maximumMemoryBytes,
+            let leastRecentlyUsed = memoryImageData.min(by: { $0.value.accessOrder < $1.value.accessOrder })
+        {
+            memoryImageData.removeValue(forKey: leastRecentlyUsed.key)
+            memoryByteCount -= leastRecentlyUsed.value.data.count
+        }
+    }
+
+    private func trimDiskCache() {
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: cacheDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
             return
         }
-        rasterizationWaiters.removeFirst().resume()
+        let allowedFilenames = allowedURLs.map { Set($0.map(cacheFilename(for:))) }
+        var diskFiles = files.compactMap { url -> DiskFile? in
+            guard let values = try? url.resourceValues(
+                forKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
+            ), values.isRegularFile == true else {
+                return nil
+            }
+            guard let byteCount = values.fileSize else {
+                try? fileManager.removeItem(at: url)
+                return nil
+            }
+            return DiskFile(
+                url: url,
+                byteCount: byteCount,
+                modificationDate: values.contentModificationDate ?? .distantPast,
+                isAllowed: allowedFilenames?.contains(url.lastPathComponent) ?? true
+            )
+        }
+        var totalBytes = diskFiles.reduce(0) { $0 + $1.byteCount }
+        guard diskFiles.count > policy.maximumDiskFileCount || totalBytes > policy.maximumDiskBytes else {
+            return
+        }
+        diskFiles.sort {
+            if $0.isAllowed != $1.isAllowed {
+                return !$0.isAllowed
+            }
+            return $0.modificationDate < $1.modificationDate
+        }
+        while !diskFiles.isEmpty,
+            diskFiles.count > policy.maximumDiskFileCount || totalBytes > policy.maximumDiskBytes
+        {
+            let file = diskFiles.removeFirst()
+            do {
+                try fileManager.removeItem(at: file.url)
+                totalBytes -= file.byteCount
+            } catch {
+                continue
+            }
+        }
     }
 
     private func hasVisibleRasterContent(_ data: Data) -> Bool {
@@ -537,9 +775,9 @@ actor AccountIconCache {
             let height = cgImage.height
             guard width > 0,
                 height > 0,
-                width <= Self.maximumRasterDimension,
-                height <= Self.maximumRasterDimension,
-                width <= Self.maximumRasterPixels / height
+                width <= policy.maximumSourceDimension,
+                height <= policy.maximumSourceDimension,
+                width <= policy.maximumSourcePixels / height
             else {
                 return false
             }
@@ -574,26 +812,26 @@ actor AccountIconCache {
 
     private func normalizedRasterData(_ data: Data) -> Data? {
         #if canImport(UIKit)
-            guard let image = UIImage(data: data), let cgImage = image.cgImage else {
-                return nil
-            }
-            let width = cgImage.width
-            let height = cgImage.height
-            guard width > 0,
+            guard !data.isEmpty, data.count <= policy.maximumSourceBytes,
+                let source = CGImageSourceCreateWithData(data as CFData, nil),
+                CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete,
+                let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+                let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+                width > 0,
                 height > 0,
-                width <= Self.maximumRasterDimension,
-                height <= Self.maximumRasterDimension,
-                width <= Self.maximumRasterPixels / height
+                width <= policy.maximumSourceDimension,
+                height <= policy.maximumSourceDimension,
+                width <= policy.maximumSourcePixels / height,
+                let image = UIImage(data: data),
+                image.cgImage != nil
             else {
                 return nil
             }
-            guard width > Self.cachedRasterDimension || height > Self.cachedRasterDimension else {
-                return data
-            }
 
-            let target = CGFloat(Self.cachedRasterDimension)
-            let scale = min(target / CGFloat(width), target / CGFloat(height))
-            let drawSize = CGSize(width: CGFloat(width) * scale, height: CGFloat(height) * scale)
+            let target = CGFloat(policy.normalizedDimension)
+            let scale = min(target / image.size.width, target / image.size.height)
+            let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
             let drawOrigin = CGPoint(x: (target - drawSize.width) / 2, y: (target - drawSize.height) / 2)
             let format = UIGraphicsImageRendererFormat()
             format.opaque = false
@@ -613,7 +851,10 @@ actor AccountIconCache {
         cacheDirectory.appendingPathComponent(cacheFilename(for: url), isDirectory: false)
     }
 
-    private nonisolated static func readCachedFile(at url: URL) async -> CachedFile? {
+    private nonisolated static func readCachedFile(
+        at url: URL,
+        policy: AccountIconCachePolicy
+    ) async -> CachedFile? {
         let task = Task.detached(priority: .userInitiated) { () -> CachedFile? in
             guard !Task.isCancelled,
                 let data = try? Data(contentsOf: url, options: [.mappedIfSafe])
@@ -623,7 +864,7 @@ actor AccountIconCache {
             guard !Task.isCancelled else {
                 return nil
             }
-            guard !data.isEmpty, data.count <= Self.maximumDownloadBytes else {
+            guard !data.isEmpty, data.count <= policy.maximumSourceBytes else {
                 return nil
             }
             let modificationDate = try? url.resourceValues(
@@ -644,9 +885,9 @@ actor AccountIconCache {
             } == true
                 && width > 0
                 && height > 0
-                && width <= Self.maximumRasterDimension
-                && height <= Self.maximumRasterDimension
-                && width <= Self.maximumRasterPixels / height
+                && width <= policy.maximumSourceDimension
+                && height <= policy.maximumSourceDimension
+                && width <= policy.maximumSourcePixels / height
             return CachedFile(
                 data: data,
                 modificationDate: modificationDate,
