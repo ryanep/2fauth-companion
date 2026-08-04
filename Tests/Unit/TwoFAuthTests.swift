@@ -1,8 +1,126 @@
+import Foundation
+import SwiftData
 import XCTest
 
 @testable import TwoFAuth
 
+private enum LegacyAccountSchema: VersionedSchema {
+    static let versionIdentifier = Schema.Version(1, 0, 0)
+    static var models: [any PersistentModel.Type] { [AccountEntity.self] }
+
+    @Model
+    final class AccountEntity {
+        @Attribute(.unique) var remoteID: Int
+        var service: String?
+        var account: String
+        var otpType: String
+        var digits: Int?
+        var algorithm: String?
+        var period: Int?
+        var encryptedSecret: Data?
+        var updatedAt: Date
+
+        init(
+            remoteID: Int,
+            service: String?,
+            account: String,
+            otpType: String,
+            digits: Int?,
+            algorithm: String?,
+            period: Int?,
+            encryptedSecret: Data?,
+            updatedAt: Date
+        ) {
+            self.remoteID = remoteID
+            self.service = service
+            self.account = account
+            self.otpType = otpType
+            self.digits = digits
+            self.algorithm = algorithm
+            self.period = period
+            self.encryptedSecret = encryptedSecret
+            self.updatedAt = updatedAt
+        }
+    }
+}
+
 final class TwoFAuthTests: XCTestCase {
+    @MainActor
+    func testAccountStoreLightweightMigratesOptionalIconFilename() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let storeURL = directory.appendingPathComponent("2FAuth.store")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        do {
+            let configuration = ModelConfiguration(url: storeURL)
+            let legacyContainer = try ModelContainer(
+                for: LegacyAccountSchema.AccountEntity.self,
+                configurations: configuration
+            )
+            let context = ModelContext(legacyContainer)
+            context.insert(LegacyAccountSchema.AccountEntity(
+                remoteID: 42,
+                service: "Example",
+                account: "person@example.com",
+                otpType: "totp",
+                digits: 6,
+                algorithm: "SHA1",
+                period: 30,
+                encryptedSecret: Data("encrypted".utf8),
+                updatedAt: Date(timeIntervalSince1970: 1_234)
+            ))
+            try context.save()
+        }
+
+        let configuration = ModelConfiguration(url: storeURL)
+        let currentContainer = try ModelContainer(for: AccountEntity.self, configurations: configuration)
+        let migrated = try XCTUnwrap(ModelContext(currentContainer).fetch(FetchDescriptor<AccountEntity>()).first)
+
+        XCTAssertEqual(migrated.remoteID, 42)
+        XCTAssertEqual(migrated.account, "person@example.com")
+        XCTAssertNil(migrated.iconFilename)
+        XCTAssertEqual(migrated.encryptedSecret, Data("encrypted".utf8))
+    }
+
+    @MainActor
+    func testStartupResetRemovesStoreSidecarsAndAccountIconCacheIdempotently() throws {
+        let fileManager = FileManager.default
+        let temporaryDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let storeURL = temporaryDirectory.appendingPathComponent("2FAuth.store")
+        let storeSHMURL = URL(fileURLWithPath: storeURL.path + "-shm")
+        let storeWALURL = URL(fileURLWithPath: storeURL.path + "-wal")
+        let iconCacheDirectory = temporaryDirectory.appendingPathComponent("AccountIcons", isDirectory: true)
+        let iconURL = iconCacheDirectory.appendingPathComponent("icon")
+        defer { try? fileManager.removeItem(at: temporaryDirectory) }
+
+        try fileManager.createDirectory(at: iconCacheDirectory, withIntermediateDirectories: true)
+        for url in [storeURL, storeSHMURL, storeWALURL, iconURL] {
+            try Data("cached".utf8).write(to: url)
+        }
+
+        try TwoFAuthApp.resetPersistentData(
+            storeURL: storeURL,
+            iconCacheDirectory: iconCacheDirectory,
+            fileManager: fileManager
+        )
+
+        for url in [storeURL, storeSHMURL, storeWALURL, iconURL] {
+            XCTAssertFalse(fileManager.fileExists(atPath: url.path))
+        }
+
+        XCTAssertNoThrow(
+            try TwoFAuthApp.resetPersistentData(
+                storeURL: storeURL,
+                iconCacheDirectory: iconCacheDirectory,
+                fileManager: fileManager
+            )
+        )
+    }
+
     @MainActor
     func testWatchAccountStoreClearsInvalidPersistedMetadataOnLoad() {
         let defaults = makeWatchDefaults(testName: #function)

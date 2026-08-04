@@ -51,4 +51,5 @@ protocol AppConfigStore {
     var autoLockTimeoutSeconds: Int { get set }
     var lastSuccessfulSyncAt: Date? { get set }
     var transportPolicy: TransportPolicy { get set }
+    var sessionRevision: Int { get set }
 }

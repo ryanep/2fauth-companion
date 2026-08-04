@@ -26,6 +26,7 @@ import SwiftData
         private let clearWatchSnapshot: () -> Void
         private let taskScheduler: any BackgroundTaskScheduling
         private let report: (String, [String: String]) -> Void
+        private let iconCache: AccountIconCache
 
         init(
             modelContainer: ModelContainer,
@@ -34,7 +35,8 @@ import SwiftData
             repository: any AccountRepository,
             clearWatchSnapshot: @escaping () -> Void = {},
             taskScheduler: any BackgroundTaskScheduling = BGTaskScheduler.shared,
-            report: @escaping (String, [String: String]) -> Void = ErrorReporter.report
+            report: @escaping (String, [String: String]) -> Void = ErrorReporter.report,
+            iconCache: AccountIconCache = .shared
         ) {
             self.modelContainer = modelContainer
             self.configStore = configStore
@@ -43,6 +45,7 @@ import SwiftData
             self.clearWatchSnapshot = clearWatchSnapshot
             self.taskScheduler = taskScheduler
             self.report = report
+            self.iconCache = iconCache
         }
 
         func register() {
@@ -107,12 +110,20 @@ import SwiftData
                 return true
             }
 
+            let sessionRevision = configStore.sessionRevision
+            await iconCache.advanceSession(to: sessionRevision)
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                return true
+            }
             let context = ModelContext(modelContainer)
             let result = await repository.syncAccounts(
                 context: context,
                 baseURL: baseURL,
                 apiKey: apiKey,
-                includeSecrets: true
+                includeSecrets: true,
+                isCurrentSession: { [weak self] in
+                    self?.isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) == true
+                }
             )
 
             if isCancelled() {
@@ -120,19 +131,39 @@ import SwiftData
                 return false
             }
 
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                return true
+            }
+
             switch result {
             case .success:
+                await pruneIconCache(context: context, baseURL: baseURL, sessionRevision: sessionRevision)
+                return true
+            case .stale:
                 return true
             case .unauthorized:
                 if isCancelled() {
                     ErrorReporter.report("background.sync_cancelled_before_wipe")
                     return false
                 }
+                configStore.sessionRevision &+= 1
+                let wipeRevision = configStore.sessionRevision
+                await iconCache.advanceSession(to: wipeRevision)
+                guard configStore.sessionRevision == wipeRevision else {
+                    return true
+                }
                 do {
                     try repository.wipeCachedData(context: context)
                 } catch {
                     ErrorReporter.report("background.wipe_failed")
                     return false
+                }
+                guard configStore.sessionRevision == wipeRevision else {
+                    return true
+                }
+                await iconCache.clear(sessionRevision: wipeRevision)
+                guard configStore.sessionRevision == wipeRevision else {
+                    return true
                 }
                 _ = secretStore.deleteAPIKey()
                 _ = secretStore.deleteEncryptionKey()
@@ -159,6 +190,33 @@ import SwiftData
             case .failure(.invalid):
                 ErrorReporter.report("background.sync_skipped_invalid_base_url")
                 return nil
+            }
+        }
+
+        private func isCurrentSession(revision: Int, baseURL: URL, apiKey: String) -> Bool {
+            guard
+                configStore.sessionRevision == revision,
+                let baseURLString = configStore.baseURLString,
+                case .success(let configuredBaseURL) = TransportURLValidator.validateBaseURL(
+                    baseURLString,
+                    policy: configStore.transportPolicy
+                )
+            else {
+                return false
+            }
+            return configuredBaseURL == baseURL && secretStore.loadAPIKey() == apiKey
+        }
+
+        private func pruneIconCache(context: ModelContext, baseURL: URL, sessionRevision: Int) async {
+            do {
+                let accounts = try context.fetch(FetchDescriptor<AccountEntity>())
+                let urls = Set(accounts.compactMap { account in
+                    AccountIconCache.iconURL(baseURL: baseURL, iconFilename: account.iconFilename)
+                })
+                await iconCache.advanceSession(to: sessionRevision)
+                await iconCache.prune(keeping: urls, sessionRevision: sessionRevision)
+            } catch {
+                report("background.icon_cache_prune_failed", [:])
             }
         }
     }

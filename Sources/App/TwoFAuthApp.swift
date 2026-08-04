@@ -102,17 +102,32 @@ struct TwoFAuthApp: App {
     }
 
     private func resetPersistentData() throws {
-        let baseURL = try Self.persistentStoreURL()
         let fileManager = FileManager.default
+        try Self.resetPersistentData(
+            storeURL: Self.persistentStoreURL(),
+            iconCacheDirectory: AccountIconCache.defaultCacheDirectory(fileManager: fileManager),
+            fileManager: fileManager
+        )
+    }
+
+    static func resetPersistentData(
+        storeURL: URL,
+        iconCacheDirectory: URL,
+        fileManager: FileManager
+    ) throws {
         let urls = [
-            baseURL,
-            URL(fileURLWithPath: baseURL.path + "-shm"),
-            URL(fileURLWithPath: baseURL.path + "-wal"),
+            storeURL,
+            URL(fileURLWithPath: storeURL.path + "-shm"),
+            URL(fileURLWithPath: storeURL.path + "-wal"),
         ]
 
         for url in urls where fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
         }
+        try AccountIconCache.removePersistentData(
+            fileManager: fileManager,
+            cacheDirectory: iconCacheDirectory
+        )
     }
 }
 

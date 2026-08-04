@@ -64,6 +64,12 @@ enum AddAccountError: Error, Equatable, LocalizedError {
 
 @MainActor
 final class AppModel: ObservableObject {
+    private struct SessionIdentity {
+        let revision: Int
+        let baseURL: URL
+        let apiKey: String
+    }
+
     @Published var sessionState: SessionState = .loggedOut
     @Published var baseURLInput: String = ""
     @Published var loginError: String?
@@ -83,12 +89,14 @@ final class AppModel: ObservableObject {
     private let pushWatchSnapshot: () -> Void
     private let clearWatchSnapshot: () -> Void
     private let biometricAuthenticator: any BiometricAuthenticator
+    private let iconCache: AccountIconCache
 
     private var unlockedState: SessionState = .unlocked
     private var backgroundedAt: Date?
     private var isUnlockInProgress = false
     private var isForegroundSyncActive = false
     private var foregroundSyncWaiters: [CheckedContinuation<Void, Never>] = []
+    private var syncingRevision: Int?
 
     var requiresOnboarding: Bool {
         return !hasSessionConfiguration
@@ -102,7 +110,8 @@ final class AppModel: ObservableObject {
         scheduleBackgroundRefresh: @escaping () -> Void,
         pushWatchSnapshot: @escaping () -> Void,
         clearWatchSnapshot: @escaping () -> Void,
-        biometricAuthenticator: any BiometricAuthenticator = LocalBiometricAuthenticator()
+        biometricAuthenticator: any BiometricAuthenticator = LocalBiometricAuthenticator(),
+        iconCache: AccountIconCache = .shared
     ) {
         self.modelContext = modelContext
         self.configStore = configStore
@@ -112,12 +121,15 @@ final class AppModel: ObservableObject {
         self.pushWatchSnapshot = pushWatchSnapshot
         self.clearWatchSnapshot = clearWatchSnapshot
         self.biometricAuthenticator = biometricAuthenticator
+        self.iconCache = iconCache
         self.baseURLInput = configStore.baseURLString ?? ""
         self.autoLockTimeoutSeconds = configStore.autoLockTimeoutSeconds
         self.lastSuccessfulSyncAt = configStore.lastSuccessfulSyncAt
     }
 
     func bootstrap() async {
+        await iconCache.advanceSession(to: configStore.sessionRevision)
+
         #if DEBUG
             if ProcessInfo.processInfo.environment["UI_TEST_FORCE_LOGGED_OUT"] == "1" {
                 unlockedState = .unlocked
@@ -167,14 +179,25 @@ final class AppModel: ObservableObject {
             return
         }
 
-        isSyncing = true
+        let sessionRevision = advanceSessionRevision()
+        beginSync(revision: sessionRevision)
+        defer { endSync(revision: sessionRevision) }
+        await iconCache.advanceSession(to: sessionRevision)
+        guard isCurrentLoginAttempt(revision: sessionRevision, baseURL: baseURL) else {
+            return
+        }
         let syncResult = await repository.syncAccounts(
             context: modelContext,
             baseURL: baseURL,
             apiKey: apiKey,
-            includeSecrets: true
+            includeSecrets: true,
+            isCurrentSession: { [weak self] in
+                self?.isCurrentLoginAttempt(revision: sessionRevision, baseURL: baseURL) == true
+            }
         )
-        isSyncing = false
+        guard isCurrentLoginAttempt(revision: sessionRevision, baseURL: baseURL) else {
+            return
+        }
 
         switch syncResult {
         case .success:
@@ -191,10 +214,13 @@ final class AppModel: ObservableObject {
                 scheduleBackgroundRefresh()
                 startTimer()
                 pushWatchSnapshot()
+                await pruneIconCache(baseURL: baseURL, sessionRevision: sessionRevision)
             } catch {
                 ErrorReporter.report("login.secure_store_failed")
                 loginError = String(localized: "login.error.secure_store_failed")
             }
+        case .stale:
+            return
         case .unauthorized:
             loginError = String(localized: "login.error.invalid_credentials")
         case .transient(let reason):
@@ -242,6 +268,10 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func syncNow() async -> SyncResult? {
+        await syncNow(expectedSession: nil)
+    }
+
+    private func syncNow(expectedSession: SessionIdentity?) async -> SyncResult? {
         await acquireForegroundSync()
         defer { releaseForegroundSync() }
 
@@ -251,19 +281,42 @@ final class AppModel: ObservableObject {
 
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
             if sessionState == .unlocked || sessionState == .degradedOffline {
+                let sessionRevision = advanceSessionRevision()
                 sessionState = .loggedOut
+                await iconCache.advanceSession(to: sessionRevision)
             }
             return nil
         }
 
-        isSyncing = true
+        if let expectedSession,
+            !isCurrentSession(
+                revision: expectedSession.revision,
+                baseURL: expectedSession.baseURL,
+                apiKey: expectedSession.apiKey
+            )
+        {
+            return .stale
+        }
+
+        let sessionRevision = configStore.sessionRevision
+        beginSync(revision: sessionRevision)
+        defer { endSync(revision: sessionRevision) }
+        await iconCache.advanceSession(to: sessionRevision)
+        guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+            return .stale
+        }
         let result = await repository.syncAccounts(
             context: modelContext,
             baseURL: baseURL,
             apiKey: apiKey,
-            includeSecrets: true
+            includeSecrets: true,
+            isCurrentSession: { [weak self] in
+                self?.isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) == true
+            }
         )
-        isSyncing = false
+        guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+            return .stale
+        }
 
         switch result {
         case .success:
@@ -277,6 +330,12 @@ final class AppModel: ObservableObject {
             syncMessage = nil
             startTimer()
             pushWatchSnapshot()
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                return .stale
+            }
+            await pruneIconCache(baseURL: baseURL, sessionRevision: sessionRevision)
+        case .stale:
+            return .stale
         case .unauthorized:
             ErrorReporter.report("sync.unauthorized")
             await enforceReloginWipe()
@@ -295,10 +354,13 @@ final class AppModel: ObservableObject {
     }
 
     func logout() async {
+        let sessionRevision = advanceSessionRevision()
+        syncingRevision = nil
+        isSyncing = false
         sessionState = .loggedOut
         loginError = nil
         syncMessage = nil
-        await wipeAllData(requireRelogin: false)
+        await wipeAllData(requireRelogin: false, sessionRevision: sessionRevision)
     }
 
     func updateAutoLockTimeout(seconds: Int) {
@@ -312,6 +374,9 @@ final class AppModel: ObservableObject {
         case .background:
             backgroundedAt = Date()
             stopTimer()
+            Task {
+                await iconCache.cancelUnownedRefreshes()
+            }
         case .active:
             guard let backgroundedAt else { return }
             let elapsed = Date().timeIntervalSince(backgroundedAt)
@@ -361,6 +426,34 @@ final class AppModel: ObservableObject {
         configuredBaseURL() != nil && secretStore.loadAPIKey() != nil
     }
 
+    private func advanceSessionRevision() -> Int {
+        configStore.sessionRevision &+= 1
+        return configStore.sessionRevision
+    }
+
+    private func beginSync(revision: Int) {
+        syncingRevision = revision
+        isSyncing = true
+    }
+
+    private func endSync(revision: Int) {
+        guard syncingRevision == revision else {
+            return
+        }
+        syncingRevision = nil
+        isSyncing = false
+    }
+
+    private func isCurrentLoginAttempt(revision: Int, baseURL: URL) -> Bool {
+        configStore.sessionRevision == revision && validatedBaseURL(from: baseURLInput) == baseURL
+    }
+
+    private func isCurrentSession(revision: Int, baseURL: URL, apiKey: String) -> Bool {
+        configStore.sessionRevision == revision
+            && configuredBaseURL() == baseURL
+            && secretStore.loadAPIKey() == apiKey
+    }
+
     private func validatedBaseURL(from input: String) -> URL? {
         switch TransportURLValidator.validateBaseURL(input, policy: configStore.transportPolicy) {
         case .success(let url):
@@ -391,18 +484,32 @@ final class AppModel: ObservableObject {
     }
 
     private func enforceReloginWipe() async {
+        let sessionRevision = advanceSessionRevision()
+        syncingRevision = nil
+        isSyncing = false
         sessionState = .reloginRequired
-        await wipeAllData(requireRelogin: true)
-        syncMessage = String(localized: "sync.status.session_expired")
+        await wipeAllData(requireRelogin: true, sessionRevision: sessionRevision)
+        if configStore.sessionRevision == sessionRevision {
+            syncMessage = String(localized: "sync.status.session_expired")
+        }
     }
 
-    private func wipeAllData(requireRelogin: Bool) async {
+    private func wipeAllData(requireRelogin: Bool, sessionRevision: Int) async {
         #if DEBUG
             if let delayMS = UInt64(ProcessInfo.processInfo.environment["UI_TEST_WIPE_DELAY_MS"] ?? ""), delayMS > 0 {
                 try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
             }
         #endif
 
+        guard configStore.sessionRevision == sessionRevision else {
+            return
+        }
+        await iconCache.advanceSession(to: sessionRevision)
+        await iconCache.clear(sessionRevision: sessionRevision)
+
+        guard configStore.sessionRevision == sessionRevision else {
+            return
+        }
         do {
             try repository.wipeCachedData(context: modelContext)
         } catch {
@@ -410,6 +517,9 @@ final class AppModel: ObservableObject {
             syncMessage = String(localized: "sync.error.cache_clear_failed")
         }
 
+        guard configStore.sessionRevision == sessionRevision else {
+            return
+        }
         _ = secretStore.deleteAPIKey()
         _ = secretStore.deleteEncryptionKey()
 
@@ -436,6 +546,7 @@ extension AppModel {
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
             throw AddAccountError.authenticationRequired
         }
+        let sessionRevision = configStore.sessionRevision
 
         do {
             let customOTP = OTPAuthURIValidator.isSteamAccount(uri) ? "steamtotp" : nil
@@ -445,6 +556,9 @@ extension AppModel {
                 uri: uri,
                 customOTP: customOTP
             )
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                throw CancellationError()
+            }
             guard
                 let secret = account.secret,
                 !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -467,6 +581,9 @@ extension AppModel {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                throw CancellationError()
+            }
             throw await addAccountError(from: error)
         }
     }
@@ -475,6 +592,8 @@ extension AppModel {
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
             throw AddAccountError.authenticationRequired
         }
+        let sessionRevision = configStore.sessionRevision
+        let sessionIdentity = SessionIdentity(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey)
 
         let accountName = account.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !accountName.isEmpty, !preview.secret.isEmpty else {
@@ -498,16 +617,36 @@ extension AppModel {
                 context: modelContext,
                 baseURL: baseURL,
                 apiKey: apiKey,
-                requestBody: requestBody
+                requestBody: requestBody,
+                isCurrentSession: { [weak self] in
+                    self?.isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) == true
+                }
             )
-            _ = await refreshAfterAccountCreation()
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                throw AccountRepositoryError.staleSession
+            }
+            await pruneIconCache(baseURL: baseURL, sessionRevision: sessionRevision)
+            try requireCurrentSession(sessionIdentity)
+            _ = try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
+        } catch AccountRepositoryError.staleSession {
+            throw CancellationError()
         } catch AccountRepositoryError.createdButNotCached {
-            if await refreshAfterAccountCreation() {
+            try requireCurrentSession(sessionIdentity)
+            let refreshed = try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
+            if refreshed {
                 return
             }
             throw AddAccountError.createdButNotCached
+        } catch APIError.unauthorized {
+            try requireCurrentSession(sessionIdentity)
+            throw await addAccountError(from: APIError.unauthorized)
         } catch {
-            throw await createAccountError(from: error)
+            try requireCurrentSession(sessionIdentity)
+            let mappedError = try await createAccountError(from: error, sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
+            throw mappedError
         }
     }
 
@@ -538,14 +677,19 @@ extension AppModel {
 }
 
 extension AppModel {
-    fileprivate func refreshAfterAccountCreation() async -> Bool {
-        guard let result = await syncNow() else {
+    private func refreshAfterAccountCreation(sessionIdentity: SessionIdentity) async throws -> Bool {
+        try requireCurrentSession(sessionIdentity)
+        guard let result = await syncNow(expectedSession: sessionIdentity) else {
+            try requireCurrentSession(sessionIdentity)
             return false
         }
+        try requireCurrentSession(sessionIdentity)
 
         switch result {
         case .success:
             return true
+        case .stale:
+            throw CancellationError()
         case .transient:
             scheduleBackgroundRefresh()
             pushWatchSnapshot()
@@ -586,31 +730,51 @@ extension AppModel {
         }
     }
 
-    fileprivate func createAccountError(from error: any Error) async -> AddAccountError {
+    private func createAccountError(
+        from error: any Error,
+        sessionIdentity: SessionIdentity
+    ) async throws -> AddAccountError {
         if error is CancellationError {
-            _ = await refreshAfterAccountCreationWithoutInheritedCancellation()
+            _ = try await refreshAfterAccountCreationWithoutInheritedCancellation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
             ErrorReporter.report("add_account.creation_outcome_unknown")
             return .creationOutcomeUnknown
         }
 
         switch error {
         case AccountRepositoryError.unsupportedOTPType:
-            _ = await refreshAfterAccountCreation()
+            _ = try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
             return .createdButNotCached
         case APIError.transport, APIError.decoding, APIError.server:
-            _ = await refreshAfterAccountCreation()
+            _ = try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+            try requireCurrentSession(sessionIdentity)
             ErrorReporter.report("add_account.creation_outcome_unknown")
             return .creationOutcomeUnknown
         default:
-            return await addAccountError(from: error)
+            let mappedError = await addAccountError(from: error)
+            try requireCurrentSession(sessionIdentity)
+            return mappedError
         }
     }
 
-    private func refreshAfterAccountCreationWithoutInheritedCancellation() async -> Bool {
-        await Task { @MainActor [weak self] in
+    private func refreshAfterAccountCreationWithoutInheritedCancellation(
+        sessionIdentity: SessionIdentity
+    ) async throws -> Bool {
+        try await Task { @MainActor [weak self] in
             guard let self else { return false }
-            return await refreshAfterAccountCreation()
+            return try await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
         }.value
+    }
+
+    private func requireCurrentSession(_ sessionIdentity: SessionIdentity) throws {
+        guard isCurrentSession(
+            revision: sessionIdentity.revision,
+            baseURL: sessionIdentity.baseURL,
+            apiKey: sessionIdentity.apiKey
+        ) else {
+            throw CancellationError()
+        }
     }
 }
 
@@ -656,5 +820,52 @@ extension AppModel {
         raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+
+    func iconURL(for filename: String?) -> URL? {
+        guard let baseURL = configuredBaseURL() else {
+            return nil
+        }
+        return AccountIconCache.iconURL(baseURL: baseURL, iconFilename: filename)
+    }
+
+    func iconData(for url: URL, allowRemoteLoad: Bool = true, sessionRevision: Int) async -> Data? {
+        await iconCache.imageData(
+            for: url,
+            allowRemoteLoad: allowRemoteLoad,
+            sessionRevision: sessionRevision
+        )
+    }
+
+    func iconDataUpdates(
+        for url: URL,
+        allowRemoteLoad: Bool = true,
+        sessionRevision: Int
+    ) async -> AsyncStream<Data> {
+        await iconCache.imageUpdates(
+            for: url,
+            allowRemoteLoad: allowRemoteLoad,
+            sessionRevision: sessionRevision
+        )
+    }
+
+    func iconLoadIdentity(for filename: String?) -> AccountIconLoadIdentity {
+        AccountIconLoadIdentity(
+            url: iconURL(for: filename),
+            sessionRevision: configStore.sessionRevision
+        )
+    }
+
+    private func pruneIconCache(baseURL: URL, sessionRevision: Int) async {
+        do {
+            let accounts = try modelContext.fetch(FetchDescriptor<AccountEntity>())
+            let urls = Set(accounts.compactMap { account in
+                AccountIconCache.iconURL(baseURL: baseURL, iconFilename: account.iconFilename)
+            })
+            await iconCache.advanceSession(to: sessionRevision)
+            await iconCache.prune(keeping: urls, sessionRevision: sessionRevision)
+        } catch {
+            ErrorReporter.report("account.icon_cache_prune_failed")
+        }
     }
 }

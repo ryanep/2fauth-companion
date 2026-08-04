@@ -10,6 +10,7 @@ final class AccountEntity {
     var digits: Int?
     var algorithm: String?
     var period: Int?
+    var iconFilename: String?
     var encryptedSecret: Data?
     var updatedAt: Date
 
@@ -21,6 +22,7 @@ final class AccountEntity {
         digits: Int?,
         algorithm: String?,
         period: Int?,
+        iconFilename: String? = nil,
         encryptedSecret: Data?,
         updatedAt: Date
     ) {
@@ -31,6 +33,7 @@ final class AccountEntity {
         self.digits = digits
         self.algorithm = algorithm
         self.period = period
+        self.iconFilename = iconFilename
         self.encryptedSecret = encryptedSecret
         self.updatedAt = updatedAt
     }

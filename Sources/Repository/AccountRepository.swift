@@ -5,11 +5,13 @@ enum SyncResult {
     case success
     case unauthorized
     case transient(String)
+    case stale
 }
 
 enum AccountRepositoryError: Error {
     case unsupportedOTPType
     case createdButNotCached
+    case staleSession
 }
 
 @MainActor
@@ -30,20 +32,29 @@ final class DefaultAccountRepository: AccountRepository {
         try cryptoStore.decrypt(encryptedSecret)
     }
 
-    func syncAccounts(context: ModelContext, baseURL: URL, apiKey: String, includeSecrets: Bool) async -> SyncResult {
+    func syncAccounts(
+        context: ModelContext,
+        baseURL: URL,
+        apiKey: String,
+        includeSecrets: Bool,
+        isCurrentSession: @escaping () -> Bool
+    ) async -> SyncResult {
         do {
             let remoteAccounts = try await apiClient.fetchAccounts(
                 baseURL: baseURL,
                 apiKey: apiKey,
                 includeSecrets: includeSecrets
             )
+            guard isCurrentSession() else {
+                return .stale
+            }
             let filteredAccounts = remoteAccounts.filter { $0.otpType.lowercased() != "hotp" }
             try upsert(remoteAccounts: filteredAccounts, context: context)
             return .success
         } catch APIError.unauthorized {
-            return .unauthorized
+            return isCurrentSession() ? .unauthorized : .stale
         } catch APIError.forbidden {
-            return .unauthorized
+            return isCurrentSession() ? .unauthorized : .stale
         } catch APIError.server(let code) {
             ErrorReporter.report("repository.sync_server_error", metadata: ["status": String(code)])
             return .transient(
@@ -78,9 +89,13 @@ final class DefaultAccountRepository: AccountRepository {
         context: ModelContext,
         baseURL: URL,
         apiKey: String,
-        requestBody: AccountCreationRequest
+        requestBody: AccountCreationRequest,
+        isCurrentSession: @escaping () -> Bool
     ) async throws {
         let account = try await apiClient.createAccount(baseURL: baseURL, apiKey: apiKey, requestBody: requestBody)
+        guard isCurrentSession() else {
+            throw AccountRepositoryError.staleSession
+        }
         guard isSupportedOTPType(account.otpType) else {
             throw AccountRepositoryError.unsupportedOTPType
         }
@@ -173,6 +188,7 @@ final class DefaultAccountRepository: AccountRepository {
             digits: remote.digits?.rawValue,
             algorithm: remote.algorithm?.rawValue,
             period: remote.period,
+            iconFilename: remote.icon,
             encryptedSecret: nil,
             updatedAt: updatedAt
         )
@@ -191,6 +207,7 @@ final class DefaultAccountRepository: AccountRepository {
             || entity.digits != remote.digits?.rawValue
             || entity.algorithm != remote.algorithm?.rawValue
             || entity.period != remote.period
+            || entity.iconFilename != remote.icon
     }
 
     private func applyMetadata(from remote: APIAccount, to entity: AccountEntity) {
@@ -200,6 +217,7 @@ final class DefaultAccountRepository: AccountRepository {
         entity.digits = remote.digits?.rawValue
         entity.algorithm = remote.algorithm?.rawValue
         entity.period = remote.period
+        entity.iconFilename = remote.icon
     }
 
     private func updateSecretIfNeeded(remoteSecret: String?, entity: AccountEntity) throws -> Bool {
