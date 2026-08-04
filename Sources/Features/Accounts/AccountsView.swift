@@ -142,6 +142,16 @@ func canLoadAccountIcon(in scenePhase: ScenePhase) -> Bool {
     scenePhase != .background
 }
 
+func accountIconFallbackText(service: String?, account: String) -> String {
+    for candidate in [service ?? "", account] {
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let first = trimmed.first {
+            return String(first).uppercased()
+        }
+    }
+    return "?"
+}
+
 struct AccountIconLoadIdentity: Equatable {
     let url: URL?
     let sessionRevision: Int
@@ -404,11 +414,7 @@ private struct AccountIconView: View {
     #endif
 
     private var displayText: String {
-        let title = account.account.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = title.first else {
-            return "?"
-        }
-        return String(first).uppercased()
+        accountIconFallbackText(service: account.service, account: account.account)
     }
 
     var body: some View {

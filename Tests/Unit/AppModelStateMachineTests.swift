@@ -793,6 +793,13 @@ final class AppModelStateMachineTests: XCTestCase {
         XCTAssertFalse(canLoadAccountIcon(in: .background))
     }
 
+    func testAccountIconFallbackPrefersServiceThenAccount() {
+        XCTAssertEqual(accountIconFallbackText(service: "Amazon", account: "user@example.com"), "A")
+        XCTAssertEqual(accountIconFallbackText(service: nil, account: "user@example.com"), "U")
+        XCTAssertEqual(accountIconFallbackText(service: "   ", account: " user@example.com "), "U")
+        XCTAssertEqual(accountIconFallbackText(service: "   ", account: "   "), "?")
+    }
+
     func testIconURLAcceptsStorageIconPath() throws {
         let setup = try makeSUT(testName: #function)
         setup.configStore.baseURLString = "https://example.com/base"
