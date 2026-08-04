@@ -4,6 +4,42 @@ import XCTest
 
 final class TwoFAuthTests: XCTestCase {
     @MainActor
+    func testStartupResetRemovesStoreSidecarsAndAccountIconCacheIdempotently() throws {
+        let fileManager = FileManager.default
+        let temporaryDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let storeURL = temporaryDirectory.appendingPathComponent("2FAuth.store")
+        let storeSHMURL = URL(fileURLWithPath: storeURL.path + "-shm")
+        let storeWALURL = URL(fileURLWithPath: storeURL.path + "-wal")
+        let iconCacheDirectory = temporaryDirectory.appendingPathComponent("AccountIcons", isDirectory: true)
+        let iconURL = iconCacheDirectory.appendingPathComponent("icon")
+        defer { try? fileManager.removeItem(at: temporaryDirectory) }
+
+        try fileManager.createDirectory(at: iconCacheDirectory, withIntermediateDirectories: true)
+        for url in [storeURL, storeSHMURL, storeWALURL, iconURL] {
+            try Data("cached".utf8).write(to: url)
+        }
+
+        try TwoFAuthApp.resetPersistentData(
+            storeURL: storeURL,
+            iconCacheDirectory: iconCacheDirectory,
+            fileManager: fileManager
+        )
+
+        for url in [storeURL, storeSHMURL, storeWALURL, iconURL] {
+            XCTAssertFalse(fileManager.fileExists(atPath: url.path))
+        }
+
+        XCTAssertNoThrow(
+            try TwoFAuthApp.resetPersistentData(
+                storeURL: storeURL,
+                iconCacheDirectory: iconCacheDirectory,
+                fileManager: fileManager
+            )
+        )
+    }
+
+    @MainActor
     func testWatchAccountStoreClearsInvalidPersistedMetadataOnLoad() {
         let defaults = makeWatchDefaults(testName: #function)
         let secretStore = makeWatchSecretStore(testName: #function)

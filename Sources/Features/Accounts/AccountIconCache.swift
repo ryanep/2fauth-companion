@@ -63,13 +63,24 @@ actor AccountIconCache {
         self.session = session ?? Self.makeSession()
         self.fileManager = fileManager
         self.rasterizeSVG = rasterizeSVG
+        self.cacheDirectory = cacheDirectory ?? Self.defaultCacheDirectory(fileManager: fileManager)
+    }
+
+    static func defaultCacheDirectory(fileManager: FileManager) -> URL {
         let baseDirectory = (try? fileManager.url(
             for: .cachesDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
         )) ?? fileManager.temporaryDirectory
-        self.cacheDirectory = cacheDirectory ?? baseDirectory.appendingPathComponent("AccountIcons", isDirectory: true)
+        return baseDirectory.appendingPathComponent("AccountIcons", isDirectory: true)
+    }
+
+    static func removePersistentData(fileManager: FileManager, cacheDirectory: URL) throws {
+        guard fileManager.fileExists(atPath: cacheDirectory.path) else {
+            return
+        }
+        try fileManager.removeItem(at: cacheDirectory)
     }
 
     static func iconURL(baseURL: URL, iconFilename: String?) -> URL? {
@@ -358,10 +369,7 @@ actor AccountIconCache {
         cacheEpoch += 1
         allowedURLs = nil
         urlRevisions.removeAll()
-        guard fileManager.fileExists(atPath: cacheDirectory.path) else {
-            return
-        }
-        try? fileManager.removeItem(at: cacheDirectory)
+        try? Self.removePersistentData(fileManager: fileManager, cacheDirectory: cacheDirectory)
     }
 
     func cancelUnownedRefreshes() {
