@@ -40,6 +40,11 @@
 		79536DC0E9AAE71F9F1D4138 /* TwoFAuthWatchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20DAA69D5C845B728BAF07B7 /* TwoFAuthWatchUITests.swift */; };
 		7D6652FD63B729F8D7B41C43 /* WatchAccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D6ED37904C88BDC3F242A56 /* WatchAccountStore.swift */; };
 		8342AE665EF0038D029B7CD9 /* AccountIconCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E38FF31AFF1EA66F75642B6C /* AccountIconCache.swift */; };
+		A10000000000000000000001 /* AccountIconURLResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* AccountIconURLResolver.swift */; };
+		A10000000000000000000002 /* AccountIconRasterProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* AccountIconRasterProcessor.swift */; };
+		A10000000000000000000003 /* AccountIconDiskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* AccountIconDiskStore.swift */; };
+		A10000000000000000000004 /* AccountIconDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* AccountIconDownloader.swift */; };
+		A10000000000000000000005 /* SVGIconRasterizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* SVGIconRasterizer.swift */; };
 		86604BEBF437EA513B267546 /* TransportURLValidatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652921529D27032F1FD16569 /* TransportURLValidatorTests.swift */; };
 		8958E09487AAAA3F5A6A057F /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 370BB75282708FD814B967D0 /* MainTabView.swift */; };
 		8B0D11B46331CBEBD7986685 /* AccountRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A1472BBC4ED57947ADE60 /* AccountRepositoryTests.swift */; };
@@ -167,6 +172,11 @@
 		AF662DCFA6ED352DA71DE80E /* AddAccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAccountView.swift; sourceTree = "<group>"; };
 		B34009EA368EA357BA90822C /* TwoFAuthWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFAuthWatchApp.swift; sourceTree = "<group>"; };
 		B951A99C8E36A6429EA25257 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		B10000000000000000000001 /* AccountIconURLResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountIconURLResolver.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* AccountIconRasterProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountIconRasterProcessor.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* AccountIconDiskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountIconDiskStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* AccountIconDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountIconDownloader.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* SVGIconRasterizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SVGIconRasterizer.swift; sourceTree = "<group>"; };
 		C306985A647D7EDEF7FC1E58 /* CryptoStoreProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoStoreProtocol.swift; sourceTree = "<group>"; };
 		C6CB5B79497A9E57773CF756 /* APIClientProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientProtocol.swift; sourceTree = "<group>"; };
 		D235C314A1D8B083C7E08B3E /* WatchSyncPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncPayload.swift; sourceTree = "<group>"; };
@@ -436,6 +446,11 @@
 			isa = PBXGroup;
 			children = (
 				E38FF31AFF1EA66F75642B6C /* AccountIconCache.swift */,
+				B10000000000000000000003 /* AccountIconDiskStore.swift */,
+				B10000000000000000000004 /* AccountIconDownloader.swift */,
+				B10000000000000000000002 /* AccountIconRasterProcessor.swift */,
+				B10000000000000000000001 /* AccountIconURLResolver.swift */,
+				B10000000000000000000005 /* SVGIconRasterizer.swift */,
 				9D618BF64A7D0ACB43D222E0 /* AccountsView.swift */,
 				AF662DCFA6ED352DA71DE80E /* AddAccountView.swift */,
 				81D99EF35F9A241D2CBE41BA /* OTPAuthURIValidator.swift */,
@@ -652,6 +667,11 @@
 				DDED777F11F8B151572AF81F /* APIError.swift in Sources */,
 				709E45090389C0359D447D73 /* AccountEntity.swift in Sources */,
 				8342AE665EF0038D029B7CD9 /* AccountIconCache.swift in Sources */,
+				A10000000000000000000003 /* AccountIconDiskStore.swift in Sources */,
+				A10000000000000000000004 /* AccountIconDownloader.swift in Sources */,
+				A10000000000000000000002 /* AccountIconRasterProcessor.swift in Sources */,
+				A10000000000000000000001 /* AccountIconURLResolver.swift in Sources */,
+				A10000000000000000000005 /* SVGIconRasterizer.swift in Sources */,
 				FA826BFC2C98DE0CD6A361B1 /* AccountRepository.swift in Sources */,
 				42FD17AAF753A4DEA39ADD15 /* AccountRepositoryProtocol.swift in Sources */,
 				22E9C74C3B07E93C86D8ADA6 /* AccountsView.swift in Sources */,
