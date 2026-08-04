@@ -230,18 +230,6 @@ private final class ConcurrentOperationGate: @unchecked Sendable {
         return id
     }
 
-    func waitUntilStarted(_ count: Int) async {
-        while lock.withLock({ startedValues.count < count }) {
-            await Task.yield()
-        }
-    }
-
-    func waitUntilStarted(value: String) async {
-        while !lock.withLock({ startedValues.contains(value) }) {
-            await Task.yield()
-        }
-    }
-
     func resume(value: String) {
         let completion = lock.withLock { () -> (() -> Void)? in
             guard let entry = operations.first(where: { $0.value.value == value }) else { return nil }
@@ -276,6 +264,10 @@ private final class ConcurrentOperationGate: @unchecked Sendable {
 
     var peak: Int {
         lock.withLock { peakActiveCount }
+    }
+
+    var active: Int {
+        lock.withLock { activeCount }
     }
 }
 
@@ -340,18 +332,6 @@ private actor RasterizationGate {
         activeCount -= 1
     }
 
-    func waitUntilStarted(_ count: Int) async {
-        while startedValues.count < count {
-            await Task.yield()
-        }
-    }
-
-    func waitUntilStarted(value: String) async {
-        while !startedValues.contains(value) {
-            await Task.yield()
-        }
-    }
-
     func resume(value: String) {
         continuations.removeValue(forKey: value)?.resume()
     }
@@ -362,6 +342,10 @@ private actor RasterizationGate {
 
 @MainActor
 final class AppModelStateMachineTests: XCTestCase {
+    private enum AsyncTestError: Error {
+        case timedOut
+    }
+
     private struct SUT {
         let appModel: AppModel
         let configStore: UserDefaultsAppConfigStore
@@ -501,6 +485,39 @@ final class AppModelStateMachineTests: XCTestCase {
                 maximumConcurrentDownloads: maximumConcurrentDownloads,
                 maximumConcurrentRasterizations: maximumConcurrentRasterizations
             )
+        }
+
+        private func consumeIconUpdates(
+            _ updates: AsyncStream<Data>,
+            received: XCTestExpectation? = nil
+        ) -> Task<[Data], Never> {
+            Task {
+                var values: [Data] = []
+                var fulfillmentCount = 0
+                for await value in updates {
+                    values.append(value)
+                    if let received, fulfillmentCount < received.expectedFulfillmentCount {
+                        fulfillmentCount += 1
+                        received.fulfill()
+                    }
+                }
+                return values
+            }
+        }
+
+        private func waitUntil(
+            timeout: Duration = .seconds(1),
+            condition: @escaping () async -> Bool
+        ) async throws {
+            let clock = ContinuousClock()
+            let deadline = clock.now + timeout
+            while !(await condition()), clock.now < deadline {
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            guard await condition() else {
+                XCTFail("Timed out waiting for asynchronous condition")
+                throw AsyncTestError.timedOut
+            }
         }
 
     #endif
@@ -790,6 +807,53 @@ final class AppModelStateMachineTests: XCTestCase {
         )
 
         XCTAssertEqual(url?.absoluteString, "https://example.com/base/storage/icons/github.png")
+    }
+
+    func testAccountIconImageStateClearsWhenURLOrSessionChanges() throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://old.example"
+        setup.configStore.sessionRevision = 1
+        let original = setup.appModel.iconLoadIdentity(for: "github.png")
+
+        setup.configStore.baseURLString = "https://new.example"
+        let changedURL = setup.appModel.iconLoadIdentity(for: "github.png")
+        setup.configStore.baseURLString = "https://old.example"
+        setup.configStore.sessionRevision = 2
+        let changedSession = setup.appModel.iconLoadIdentity(for: "github.png")
+
+        XCTAssertFalse(shouldClearAccountIconImage(loadedIdentity: original, requestedIdentity: original))
+        XCTAssertTrue(shouldClearAccountIconImage(loadedIdentity: original, requestedIdentity: changedURL))
+        XCTAssertTrue(shouldClearAccountIconImage(loadedIdentity: original, requestedIdentity: changedSession))
+    }
+
+    func testAccountIconUpdateRequiresCurrentFilenameURLAndSessionMetadata() {
+        let oldIdentity = AccountIconLoadIdentity(
+            url: URL(string: "https://old.example/storage/icons/github.png"),
+            sessionRevision: 1
+        )
+        let currentIdentity = AccountIconLoadIdentity(
+            url: URL(string: "https://new.example/storage/icons/github.png"),
+            sessionRevision: 2
+        )
+
+        XCTAssertTrue(canApplyAccountIconUpdate(
+            requestedIdentity: currentIdentity,
+            currentIdentity: currentIdentity,
+            requestedFilename: "github.png",
+            currentFilename: "github.png"
+        ))
+        XCTAssertFalse(canApplyAccountIconUpdate(
+            requestedIdentity: oldIdentity,
+            currentIdentity: currentIdentity,
+            requestedFilename: "github.png",
+            currentFilename: "github.png"
+        ))
+        XCTAssertFalse(canApplyAccountIconUpdate(
+            requestedIdentity: currentIdentity,
+            currentIdentity: currentIdentity,
+            requestedFilename: "github.png",
+            currentFilename: "replacement.png"
+        ))
     }
 
     func testAccountIconCachePruneRemovesOnlyStaleIcons() async throws {
@@ -1327,10 +1391,8 @@ final class AppModelStateMachineTests: XCTestCase {
             Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/download-\(index).png")!) }
         }
 
-        await gate.waitUntilStarted(2)
-        while await cache.resourceAdmissionState().queuedDownloads < 3 {
-            await Task.yield()
-        }
+        try await waitUntil { gate.started.count >= 2 }
+        try await waitUntil { await cache.resourceAdmissionState().queuedDownloads >= 3 }
         let admission = await cache.resourceAdmissionState()
         let peak = gate.peak
         gate.resumeCurrentAndNext(5)
@@ -1354,33 +1416,25 @@ final class AppModelStateMachineTests: XCTestCase {
             policy: iconCachePolicy(maximumConcurrentDownloads: 1)
         )
         let first = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/first.png")!) }
-        await gate.waitUntilStarted(value: "first.png")
+        try await waitUntil { gate.started.contains("first.png") }
         let queuedCancellation = Task {
             await cache.imageData(for: URL(string: "https://example.com/storage/icons/queued-cancel.png")!)
         }
-        while await cache.resourceAdmissionState().queuedDownloads < 1 {
-            await Task.yield()
-        }
+        try await waitUntil { await cache.resourceAdmissionState().queuedDownloads >= 1 }
         queuedCancellation.cancel()
-        while await cache.resourceAdmissionState().queuedDownloads != 0 {
-            await Task.yield()
-        }
+        try await waitUntil { await cache.resourceAdmissionState().queuedDownloads == 0 }
         let transferredCancellation = Task {
             await cache.imageData(for: URL(string: "https://example.com/storage/icons/transferred-cancel.png")!)
         }
-        while await cache.resourceAdmissionState().queuedDownloads < 1 {
-            await Task.yield()
-        }
+        try await waitUntil { await cache.resourceAdmissionState().queuedDownloads >= 1 }
         gate.resume(value: "first.png")
-        await gate.waitUntilStarted(value: "transferred-cancel.png")
+        try await waitUntil { gate.started.contains("transferred-cancel.png") }
         transferredCancellation.cancel()
-        while await cache.resourceAdmissionState().activeDownloads != 0 {
-            await Task.yield()
-        }
+        try await waitUntil { await cache.resourceAdmissionState().activeDownloads == 0 }
         let newcomer = Task {
             await cache.imageData(for: URL(string: "https://example.com/storage/icons/newcomer.png")!)
         }
-        await gate.waitUntilStarted(value: "newcomer.png")
+        try await waitUntil { gate.started.contains("newcomer.png") }
         let newcomerAdmission = await cache.resourceAdmissionState()
         gate.resume(value: "newcomer.png")
         _ = await first.value
@@ -1418,34 +1472,26 @@ final class AppModelStateMachineTests: XCTestCase {
             policy: iconCachePolicy(maximumConcurrentRasterizations: 1)
         )
         let first = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/first.svg")!) }
-        await gate.waitUntilStarted(value: "<svg id=\"first.svg\"></svg>")
+        try await waitUntil { await gate.started.contains("<svg id=\"first.svg\"></svg>") }
         let queuedCancellation = Task {
             await cache.imageData(for: URL(string: "https://example.com/storage/icons/queued-cancel.svg")!)
         }
-        while await cache.resourceAdmissionState().queuedRasterizations < 1 {
-            await Task.yield()
-        }
+        try await waitUntil { await cache.resourceAdmissionState().queuedRasterizations >= 1 }
         queuedCancellation.cancel()
-        while await cache.resourceAdmissionState().queuedRasterizations != 0 {
-            await Task.yield()
-        }
+        try await waitUntil { await cache.resourceAdmissionState().queuedRasterizations == 0 }
         let transferredCancellation = Task {
             await cache.imageData(for: URL(string: "https://example.com/storage/icons/transferred-cancel.svg")!)
         }
-        while await cache.resourceAdmissionState().queuedRasterizations < 1 {
-            await Task.yield()
-        }
+        try await waitUntil { await cache.resourceAdmissionState().queuedRasterizations >= 1 }
         await gate.resume(value: "<svg id=\"first.svg\"></svg>")
-        await gate.waitUntilStarted(value: "<svg id=\"transferred-cancel.svg\"></svg>")
+        try await waitUntil { await gate.started.contains("<svg id=\"transferred-cancel.svg\"></svg>") }
         transferredCancellation.cancel()
         await gate.resume(value: "<svg id=\"transferred-cancel.svg\"></svg>")
-        while await cache.resourceAdmissionState().activeRasterizations != 0 {
-            await Task.yield()
-        }
+        try await waitUntil { await cache.resourceAdmissionState().activeRasterizations == 0 }
         let newcomer = Task {
             await cache.imageData(for: URL(string: "https://example.com/storage/icons/newcomer.svg")!)
         }
-        await gate.waitUntilStarted(value: "<svg id=\"newcomer.svg\"></svg>")
+        try await waitUntil { await gate.started.contains("<svg id=\"newcomer.svg\"></svg>") }
         let newcomerAdmission = await cache.resourceAdmissionState()
         await gate.resume(value: "<svg id=\"newcomer.svg\"></svg>")
         _ = await first.value
@@ -1801,15 +1847,37 @@ final class AppModelStateMachineTests: XCTestCase {
         )
 
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: true)
-        var iterator = updates.makeAsyncIterator()
-        let initialData = await iterator.next()
-        await gate.waitUntilStarted(value: url.lastPathComponent)
+        let valuesReceived = expectation(description: "stale and refreshed icons")
+        valuesReceived.expectedFulfillmentCount = 2
+        let consumer = consumeIconUpdates(updates, received: valuesReceived)
+        try await waitUntil { gate.started.contains(url.lastPathComponent) }
         gate.resume(value: url.lastPathComponent)
-        let replacementData = await iterator.next()
+        await fulfillment(of: [valuesReceived], timeout: 1)
+        await cache.clear(sessionRevision: 0)
+        let values = await consumer.value
 
-        try assertSameIconSemantics(initialData, cachedData)
-        try assertSameIconSemantics(replacementData, refreshedData)
+        XCTAssertEqual(values.count, 2)
+        try assertSameIconSemantics(values.first, cachedData)
+        try assertSameIconSemantics(values.last, refreshedData)
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconUpdateDeliveryRetainsInitialBeforePendingReplacement() async throws {
+        let staleData = visiblePNGData()
+        let refreshedData = visiblePNGData(color: .systemRed)
+        let (updates, delivery) = AccountIconUpdateDelivery.make(allowsRemoteUpdates: true)
+
+        delivery.publishReplacement(refreshedData)
+        delivery.publishInitial(staleData)
+        delivery.finish()
+
+        var values: [Data] = []
+        for await value in updates {
+            values.append(value)
+        }
+        XCTAssertEqual(values.count, 2)
+        try assertSameIconSemantics(values.first, staleData)
+        try assertSameIconSemantics(values.last, refreshedData)
     }
 
     func testAccountIconCacheDoesNotPublishDuplicateBytes() async throws {
@@ -1821,38 +1889,83 @@ final class AppModelStateMachineTests: XCTestCase {
         await writer.cache(data: visiblePNGData(), for: url)
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
-        var iterator = updates.makeAsyncIterator()
-        let firstValue = await iterator.next()
-        let initialData = try XCTUnwrap(firstValue)
+        let initialReceived = expectation(description: "initial icon")
+        let consumer = consumeIconUpdates(updates, received: initialReceived)
+        await fulfillment(of: [initialReceived], timeout: 1)
+        let loadedData = await cache.imageData(for: url, allowRemoteLoad: false)
+        let initialData = try XCTUnwrap(loadedData)
 
         await cache.cache(data: initialData, for: url)
         await cache.clear(sessionRevision: 0)
-        let nextValue = await iterator.next()
+        let values = await consumer.value
 
-        XCTAssertNil(nextValue)
+        XCTAssertEqual(values.count, 1)
         try? FileManager.default.removeItem(at: directory)
     }
 
-    func testAccountIconCacheBuffersNewestPublishedBytes() async throws {
+    func testCacheOnlyObserverDoesNotReceiveActiveObserversRemoteRefresh() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let staleData = visiblePNGData()
+        let refreshedData = visiblePNGData(color: .systemRed)
         let writer = AccountIconCache(cacheDirectory: directory)
-        await writer.cache(data: visiblePNGData(), for: url)
-        let cache = AccountIconCache(cacheDirectory: directory)
-        let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
-        var iterator = updates.makeAsyncIterator()
-        _ = await iterator.next()
+        await writer.cache(data: staleData, for: url)
+        let cacheFile = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: cacheFile.path
+        )
+        let gate = ConcurrentOperationGate()
+        let cache = AccountIconCache(
+            session: makeGatedIconURLSession(gate: gate, sourceData: refreshedData),
+            cacheDirectory: directory
+        )
+        let cacheOnlyUpdates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
+        let activeUpdates = await cache.imageUpdates(for: url, allowRemoteLoad: true)
+        let cacheOnlyInitial = expectation(description: "cache-only initial icon")
+        let activeValues = expectation(description: "active initial and refreshed icons")
+        activeValues.expectedFulfillmentCount = 2
+        let cacheOnlyConsumer = consumeIconUpdates(cacheOnlyUpdates, received: cacheOnlyInitial)
+        let activeConsumer = consumeIconUpdates(activeUpdates, received: activeValues)
+
+        await fulfillment(of: [cacheOnlyInitial], timeout: 1)
+        try await waitUntil { gate.started.contains(url.lastPathComponent) }
+        gate.resume(value: url.lastPathComponent)
+        await fulfillment(of: [activeValues], timeout: 1)
+        await cache.clear(sessionRevision: 0)
+        let cacheOnlyValues = await cacheOnlyConsumer.value
+        let remoteValues = await activeConsumer.value
+
+        XCTAssertEqual(cacheOnlyValues.count, 1)
+        try assertSameIconSemantics(cacheOnlyValues.first, staleData)
+        XCTAssertEqual(remoteValues.count, 2)
+        try assertSameIconSemantics(remoteValues.first, staleData)
+        try assertSameIconSemantics(remoteValues.last, refreshedData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheBuffersNewestPublishedBytes() async throws {
+        let initialData = visiblePNGData()
         let olderReplacement = visiblePNGData(color: .systemRed)
         let newestReplacement = visiblePNGData(color: .systemGreen)
+        let (updates, delivery) = AccountIconUpdateDelivery.make(allowsRemoteUpdates: true)
 
-        await cache.cache(data: olderReplacement, for: url)
-        await cache.cache(data: newestReplacement, for: url)
-        let bufferedData = await iterator.next()
+        delivery.publishReplacement(olderReplacement)
+        delivery.publishReplacement(newestReplacement)
+        delivery.publishInitial(initialData)
+        delivery.finish()
 
-        try assertSameIconSemantics(bufferedData, newestReplacement)
-        try? FileManager.default.removeItem(at: directory)
+        var values: [Data] = []
+        for await value in updates {
+            values.append(value)
+        }
+        XCTAssertEqual(values.count, 2)
+        try assertSameIconSemantics(values.first, initialData)
+        try assertSameIconSemantics(values.last, newestReplacement)
     }
 
     func testAccountIconCacheRemovesUpdateObserverOnCancellation() async throws {
@@ -1866,21 +1979,14 @@ final class AppModelStateMachineTests: XCTestCase {
             cacheDirectory: directory
         )
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: true)
-        let waitingForUpdate = Task {
-            var iterator = updates.makeAsyncIterator()
-            return await iterator.next()
-        }
-        await gate.waitUntilStarted(value: url.lastPathComponent)
+        let consumer = consumeIconUpdates(updates)
+        try await waitUntil { gate.started.contains(url.lastPathComponent) }
 
-        waitingForUpdate.cancel()
-        let value = await waitingForUpdate.value
-        while await cache.resourceAdmissionState().activeDownloads != 0 {
-            await Task.yield()
-        }
-        let observerCount = await cache.updateObserverCount(for: url)
+        consumer.cancel()
+        let values = await consumer.value
+        try await waitUntil { gate.active == 0 }
 
-        XCTAssertNil(value)
-        XCTAssertEqual(observerCount, 0)
+        XCTAssertTrue(values.isEmpty)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -1904,19 +2010,18 @@ final class AppModelStateMachineTests: XCTestCase {
             cacheDirectory: directory
         )
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: true)
-        var iterator = updates.makeAsyncIterator()
-        let initialData = await iterator.next()
-        await gate.waitUntilStarted(value: url.lastPathComponent)
+        let initialReceived = expectation(description: "initial stale icon")
+        let consumer = consumeIconUpdates(updates, received: initialReceived)
+        await fulfillment(of: [initialReceived], timeout: 1)
+        try await waitUntil { gate.started.contains(url.lastPathComponent) }
 
         await cache.cancelUnownedRefreshes()
-        while await cache.resourceAdmissionState().activeDownloads != 0 {
-            await Task.yield()
-        }
+        try await waitUntil { gate.active == 0 }
         await cache.clear(sessionRevision: 0)
-        let replacementData = await iterator.next()
+        let values = await consumer.value
 
-        try assertSameIconSemantics(initialData, visiblePNGData())
-        XCTAssertNil(replacementData)
+        XCTAssertEqual(values.count, 1)
+        try assertSameIconSemantics(values.first, visiblePNGData())
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -1929,13 +2034,14 @@ final class AppModelStateMachineTests: XCTestCase {
         await writer.cache(data: visiblePNGData(), for: url)
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
-        var iterator = updates.makeAsyncIterator()
-        _ = await iterator.next()
+        let initialReceived = expectation(description: "initial icon")
+        let consumer = consumeIconUpdates(updates, received: initialReceived)
+        await fulfillment(of: [initialReceived], timeout: 1)
 
         await cache.clear(sessionRevision: 0)
-        let nextValue = await iterator.next()
+        let values = await consumer.value
 
-        XCTAssertNil(nextValue)
+        XCTAssertEqual(values.count, 1)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -1948,13 +2054,34 @@ final class AppModelStateMachineTests: XCTestCase {
         await writer.cache(data: visiblePNGData(), for: url)
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
-        var iterator = updates.makeAsyncIterator()
-        _ = await iterator.next()
+        let initialReceived = expectation(description: "initial icon")
+        let consumer = consumeIconUpdates(updates, received: initialReceived)
+        await fulfillment(of: [initialReceived], timeout: 1)
 
         await cache.prune(keeping: [], sessionRevision: 0)
-        let nextValue = await iterator.next()
+        let values = await consumer.value
 
-        XCTAssertNil(nextValue)
+        XCTAssertEqual(values.count, 1)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheSessionAdvanceFinishesUpdateObservers() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: visiblePNGData(), for: url)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
+        let initialReceived = expectation(description: "initial icon")
+        let consumer = consumeIconUpdates(updates, received: initialReceived)
+        await fulfillment(of: [initialReceived], timeout: 1)
+
+        await cache.advanceSession(to: 1)
+        let values = await consumer.value
+
+        XCTAssertEqual(values.count, 1)
         try? FileManager.default.removeItem(at: directory)
     }
 

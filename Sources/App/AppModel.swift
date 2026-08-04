@@ -765,12 +765,11 @@ extension AppModel {
         await iconCache.imageUpdates(for: url, allowRemoteLoad: allowRemoteLoad)
     }
 
-    var iconSessionRevision: Int {
-        configStore.sessionRevision
-    }
-
-    func isCurrentIconLoad(url: URL, filename: String?, sessionRevision: Int) -> Bool {
-        configStore.sessionRevision == sessionRevision && iconURL(for: filename) == url
+    func iconLoadIdentity(for filename: String?) -> AccountIconLoadIdentity {
+        AccountIconLoadIdentity(
+            url: iconURL(for: filename),
+            sessionRevision: configStore.sessionRevision
+        )
     }
 
     private func pruneIconCache(baseURL: URL, sessionRevision: Int) async {

@@ -41,6 +41,65 @@ struct AccountIconCacheResourceAdmissionState: Sendable {
     let queuedRasterizations: Int
 }
 
+final class AccountIconUpdateDelivery {
+    let continuation: AsyncStream<Data>.Continuation
+    private let allowsRemoteUpdates: Bool
+    private var latestData: Data?
+    private var pendingData: Data?
+    private var didPublishInitial = false
+
+    private init(
+        continuation: AsyncStream<Data>.Continuation,
+        allowsRemoteUpdates: Bool
+    ) {
+        self.continuation = continuation
+        self.allowsRemoteUpdates = allowsRemoteUpdates
+    }
+
+    static func make(allowsRemoteUpdates: Bool) -> (AsyncStream<Data>, AccountIconUpdateDelivery) {
+        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(2))
+        return (
+            stream,
+            AccountIconUpdateDelivery(
+                continuation: continuation,
+                allowsRemoteUpdates: allowsRemoteUpdates
+            )
+        )
+    }
+
+    func publishInitial(_ data: Data?) {
+        didPublishInitial = true
+        if let data {
+            latestData = data
+            continuation.yield(data)
+        }
+        if let pendingData, pendingData != latestData {
+            latestData = pendingData
+            continuation.yield(pendingData)
+        }
+        pendingData = nil
+    }
+
+    func publishReplacement(_ data: Data) {
+        guard allowsRemoteUpdates else {
+            return
+        }
+        if didPublishInitial {
+            guard latestData != data else {
+                return
+            }
+            latestData = data
+            continuation.yield(data)
+        } else if pendingData != data {
+            pendingData = data
+        }
+    }
+
+    func finish() {
+        continuation.finish()
+    }
+}
+
 actor AccountIconCache {
     private struct InFlightImageLoad {
         let id: UUID
@@ -62,11 +121,8 @@ actor AccountIconCache {
     }
 
     private struct ImageUpdateObserver {
-        let continuation: AsyncStream<Data>.Continuation
+        let delivery: AccountIconUpdateDelivery
         var initialLoadTask: Task<Void, Never>?
-        var latestData: Data?
-        var pendingData: Data?
-        var didPublishInitial = false
     }
 
     private struct SlotWaiter {
@@ -266,15 +322,16 @@ actor AccountIconCache {
 
     func imageUpdates(for url: URL, allowRemoteLoad: Bool = true) -> AsyncStream<Data> {
         let observerID = UUID()
-        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        continuation.onTermination = { [weak self] _ in
+        let (stream, delivery) = AccountIconUpdateDelivery.make(allowsRemoteUpdates: allowRemoteLoad)
+        delivery.continuation.onTermination = { [weak self] _ in
             Task {
                 await self?.removeImageUpdateObserver(observerID, for: url)
             }
         }
         imageUpdateObservers[url, default: [:]][observerID] = ImageUpdateObserver(
-            continuation: continuation
+            delivery: delivery
         )
+        let continuation = delivery.continuation
         let initialLoadTask = Task { [weak self] in
             guard let self else {
                 continuation.finish()
@@ -287,47 +344,22 @@ actor AccountIconCache {
         return stream
     }
 
-    func updateObserverCount(for url: URL) -> Int {
-        imageUpdateObservers[url]?.count ?? 0
-    }
-
     private func publishInitialImageData(_ data: Data?, to observerID: UUID, for url: URL) {
         guard var observer = imageUpdateObservers[url]?[observerID] else {
             return
         }
         observer.initialLoadTask = nil
-        observer.didPublishInitial = true
-        var values: [Data] = []
-        if let data {
-            observer.latestData = data
-            values.append(data)
-        }
-        if let pendingData = observer.pendingData, pendingData != observer.latestData {
-            observer.latestData = pendingData
-            values.append(pendingData)
-        }
-        observer.pendingData = nil
+        observer.delivery.publishInitial(data)
         imageUpdateObservers[url]?[observerID] = observer
-        values.forEach { observer.continuation.yield($0) }
     }
 
     private func publishReplacementImageData(_ data: Data, for url: URL) {
-        guard var observers = imageUpdateObservers[url] else {
+        guard let observers = imageUpdateObservers[url] else {
             return
         }
-        for (observerID, var observer) in observers {
-            if observer.didPublishInitial {
-                guard observer.latestData != data else {
-                    continue
-                }
-                observer.latestData = data
-                observer.continuation.yield(data)
-            } else if observer.pendingData != data {
-                observer.pendingData = data
-            }
-            observers[observerID] = observer
+        for observer in observers.values {
+            observer.delivery.publishReplacement(data)
         }
-        imageUpdateObservers[url] = observers
     }
 
     private func removeImageUpdateObserver(_ observerID: UUID, for url: URL) {
@@ -348,7 +380,7 @@ actor AccountIconCache {
             }
             for observer in observers.values {
                 observer.initialLoadTask?.cancel()
-                observer.continuation.finish()
+                observer.delivery.finish()
             }
         }
     }

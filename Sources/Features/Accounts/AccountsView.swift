@@ -142,6 +142,27 @@ func canLoadAccountIcon(in scenePhase: ScenePhase) -> Bool {
     scenePhase != .background
 }
 
+struct AccountIconLoadIdentity: Equatable {
+    let url: URL?
+    let sessionRevision: Int
+}
+
+func shouldClearAccountIconImage(
+    loadedIdentity: AccountIconLoadIdentity?,
+    requestedIdentity: AccountIconLoadIdentity
+) -> Bool {
+    loadedIdentity != nil && loadedIdentity != requestedIdentity
+}
+
+func canApplyAccountIconUpdate(
+    requestedIdentity: AccountIconLoadIdentity,
+    currentIdentity: AccountIconLoadIdentity,
+    requestedFilename: String?,
+    currentFilename: String?
+) -> Bool {
+    requestedIdentity == currentIdentity && requestedFilename == currentFilename
+}
+
 func sortAccountsForDisplay(_ accounts: [AccountEntity]) -> [AccountEntity] {
     accounts.sorted { lhs, rhs in
         let lhsService = (lhs.service ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -379,7 +400,7 @@ private struct AccountIconView: View {
 
     #if canImport(UIKit)
         @State private var image: UIImage?
-        @State private var loadedFilename: String?
+        @State private var loadedIdentity: AccountIconLoadIdentity?
     #endif
 
     private var displayText: String {
@@ -428,25 +449,28 @@ private struct AccountIconView: View {
     }
 
     private var loadID: String {
-        "\(account.iconFilename ?? "")|\(scenePhase)|\(appModel.iconSessionRevision)"
+        let identity = appModel.iconLoadIdentity(for: account.iconFilename)
+        return "\(account.iconFilename ?? "")|\(identity.url?.absoluteString ?? "")|\(identity.sessionRevision)|\(scenePhase)"
     }
 
     #if canImport(UIKit)
         @MainActor
         private func loadIcon() async {
             let requestedFilename = account.iconFilename
-            let requestedSessionRevision = appModel.iconSessionRevision
+            let requestedIdentity = appModel.iconLoadIdentity(for: requestedFilename)
+            if shouldClearAccountIconImage(
+                loadedIdentity: loadedIdentity,
+                requestedIdentity: requestedIdentity
+            ) {
+                image = nil
+                loadedIdentity = nil
+            }
             guard canLoadAccountIcon(in: scenePhase),
                 !Task.isCancelled
             else {
                 return
             }
-            if loadedFilename != requestedFilename {
-                image = nil
-                loadedFilename = nil
-            }
-
-            guard let url = appModel.iconURL(for: requestedFilename) else {
+            guard let url = requestedIdentity.url else {
                 return
             }
             let updates = await appModel.iconDataUpdates(
@@ -456,11 +480,11 @@ private struct AccountIconView: View {
 
             for await data in updates {
                 guard !Task.isCancelled,
-                    account.iconFilename == requestedFilename,
-                    appModel.isCurrentIconLoad(
-                        url: url,
-                        filename: requestedFilename,
-                        sessionRevision: requestedSessionRevision
+                    canApplyAccountIconUpdate(
+                        requestedIdentity: requestedIdentity,
+                        currentIdentity: appModel.iconLoadIdentity(for: account.iconFilename),
+                        requestedFilename: requestedFilename,
+                        currentFilename: account.iconFilename
                     )
                 else {
                     return
@@ -470,7 +494,7 @@ private struct AccountIconView: View {
                     continue
                 }
                 image = loadedImage
-                loadedFilename = requestedFilename
+                loadedIdentity = requestedIdentity
             }
         }
     #endif
