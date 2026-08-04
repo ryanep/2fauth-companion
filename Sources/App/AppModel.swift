@@ -90,6 +90,7 @@ final class AppModel: ObservableObject {
     private var isUnlockInProgress = false
     private var isForegroundSyncActive = false
     private var foregroundSyncWaiters: [CheckedContinuation<Void, Never>] = []
+    private var syncingRevision: Int?
 
     var requiresOnboarding: Bool {
         return !hasSessionConfiguration
@@ -171,7 +172,12 @@ final class AppModel: ObservableObject {
         }
 
         let sessionRevision = advanceSessionRevision()
-        isSyncing = true
+        beginSync(revision: sessionRevision)
+        defer { endSync(revision: sessionRevision) }
+        await iconCache.advanceSession(to: sessionRevision)
+        guard isCurrentLoginAttempt(revision: sessionRevision, baseURL: baseURL) else {
+            return
+        }
         let syncResult = await repository.syncAccounts(
             context: modelContext,
             baseURL: baseURL,
@@ -184,7 +190,6 @@ final class AppModel: ObservableObject {
         guard isCurrentLoginAttempt(revision: sessionRevision, baseURL: baseURL) else {
             return
         }
-        isSyncing = false
 
         switch syncResult {
         case .success:
@@ -201,7 +206,7 @@ final class AppModel: ObservableObject {
                 scheduleBackgroundRefresh()
                 startTimer()
                 pushWatchSnapshot()
-                await pruneIconCache(baseURL: baseURL)
+                await pruneIconCache(baseURL: baseURL, sessionRevision: sessionRevision)
             } catch {
                 ErrorReporter.report("login.secure_store_failed")
                 loginError = String(localized: "login.error.secure_store_failed")
@@ -264,14 +269,20 @@ final class AppModel: ObservableObject {
 
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
             if sessionState == .unlocked || sessionState == .degradedOffline {
-                _ = advanceSessionRevision()
+                let sessionRevision = advanceSessionRevision()
                 sessionState = .loggedOut
+                await iconCache.advanceSession(to: sessionRevision)
             }
             return nil
         }
 
         let sessionRevision = configStore.sessionRevision
-        isSyncing = true
+        beginSync(revision: sessionRevision)
+        defer { endSync(revision: sessionRevision) }
+        await iconCache.advanceSession(to: sessionRevision)
+        guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+            return .stale
+        }
         let result = await repository.syncAccounts(
             context: modelContext,
             baseURL: baseURL,
@@ -284,7 +295,6 @@ final class AppModel: ObservableObject {
         guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
             return .stale
         }
-        isSyncing = false
 
         switch result {
         case .success:
@@ -301,7 +311,7 @@ final class AppModel: ObservableObject {
             guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
                 return .stale
             }
-            await pruneIconCache(baseURL: baseURL)
+            await pruneIconCache(baseURL: baseURL, sessionRevision: sessionRevision)
         case .stale:
             return .stale
         case .unauthorized:
@@ -323,6 +333,7 @@ final class AppModel: ObservableObject {
 
     func logout() async {
         let sessionRevision = advanceSessionRevision()
+        syncingRevision = nil
         isSyncing = false
         sessionState = .loggedOut
         loginError = nil
@@ -398,6 +409,19 @@ final class AppModel: ObservableObject {
         return configStore.sessionRevision
     }
 
+    private func beginSync(revision: Int) {
+        syncingRevision = revision
+        isSyncing = true
+    }
+
+    private func endSync(revision: Int) {
+        guard syncingRevision == revision else {
+            return
+        }
+        syncingRevision = nil
+        isSyncing = false
+    }
+
     private func isCurrentLoginAttempt(revision: Int, baseURL: URL) -> Bool {
         configStore.sessionRevision == revision && validatedBaseURL(from: baseURLInput) == baseURL
     }
@@ -439,6 +463,7 @@ final class AppModel: ObservableObject {
 
     private func enforceReloginWipe() async {
         let sessionRevision = advanceSessionRevision()
+        syncingRevision = nil
         isSyncing = false
         sessionState = .reloginRequired
         await wipeAllData(requireRelogin: true, sessionRevision: sessionRevision)
@@ -457,7 +482,8 @@ final class AppModel: ObservableObject {
         guard configStore.sessionRevision == sessionRevision else {
             return
         }
-        await iconCache.clear()
+        await iconCache.advanceSession(to: sessionRevision)
+        await iconCache.clear(sessionRevision: sessionRevision)
 
         guard configStore.sessionRevision == sessionRevision else {
             return
@@ -537,6 +563,7 @@ extension AppModel {
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
             throw AddAccountError.authenticationRequired
         }
+        let sessionRevision = configStore.sessionRevision
 
         let accountName = account.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !accountName.isEmpty, !preview.secret.isEmpty else {
@@ -562,7 +589,7 @@ extension AppModel {
                 apiKey: apiKey,
                 requestBody: requestBody
             )
-            await pruneIconCache(baseURL: baseURL)
+            await pruneIconCache(baseURL: baseURL, sessionRevision: sessionRevision)
             _ = await refreshAfterAccountCreation()
         } catch AccountRepositoryError.createdButNotCached {
             if await refreshAfterAccountCreation() {
@@ -734,13 +761,14 @@ extension AppModel {
         await iconCache.imageData(for: url, allowRemoteLoad: allowRemoteLoad)
     }
 
-    private func pruneIconCache(baseURL: URL) async {
+    private func pruneIconCache(baseURL: URL, sessionRevision: Int) async {
         do {
             let accounts = try modelContext.fetch(FetchDescriptor<AccountEntity>())
             let urls = Set(accounts.compactMap { account in
                 AccountIconCache.iconURL(baseURL: baseURL, iconFilename: account.iconFilename)
             })
-            await iconCache.prune(keeping: urls)
+            await iconCache.advanceSession(to: sessionRevision)
+            await iconCache.prune(keeping: urls, sessionRevision: sessionRevision)
         } catch {
             ErrorReporter.report("account.icon_cache_prune_failed")
         }

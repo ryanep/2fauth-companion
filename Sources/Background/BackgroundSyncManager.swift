@@ -111,6 +111,10 @@ import SwiftData
             }
 
             let sessionRevision = configStore.sessionRevision
+            await iconCache.advanceSession(to: sessionRevision)
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                return true
+            }
             let context = ModelContext(modelContainer)
             let result = await repository.syncAccounts(
                 context: context,
@@ -133,7 +137,7 @@ import SwiftData
 
             switch result {
             case .success:
-                await pruneIconCache(context: context, baseURL: baseURL)
+                await pruneIconCache(context: context, baseURL: baseURL, sessionRevision: sessionRevision)
                 return true
             case .stale:
                 return true
@@ -144,6 +148,7 @@ import SwiftData
                 }
                 configStore.sessionRevision &+= 1
                 let wipeRevision = configStore.sessionRevision
+                await iconCache.advanceSession(to: wipeRevision)
                 guard configStore.sessionRevision == wipeRevision else {
                     return true
                 }
@@ -156,7 +161,7 @@ import SwiftData
                 guard configStore.sessionRevision == wipeRevision else {
                     return true
                 }
-                await iconCache.clear()
+                await iconCache.clear(sessionRevision: wipeRevision)
                 guard configStore.sessionRevision == wipeRevision else {
                     return true
                 }
@@ -202,13 +207,14 @@ import SwiftData
             return configuredBaseURL == baseURL && secretStore.loadAPIKey() == apiKey
         }
 
-        private func pruneIconCache(context: ModelContext, baseURL: URL) async {
+        private func pruneIconCache(context: ModelContext, baseURL: URL, sessionRevision: Int) async {
             do {
                 let accounts = try context.fetch(FetchDescriptor<AccountEntity>())
                 let urls = Set(accounts.compactMap { account in
                     AccountIconCache.iconURL(baseURL: baseURL, iconFilename: account.iconFilename)
                 })
-                await iconCache.prune(keeping: urls)
+                await iconCache.advanceSession(to: sessionRevision)
+                await iconCache.prune(keeping: urls, sessionRevision: sessionRevision)
             } catch {
                 report("background.icon_cache_prune_failed", [:])
             }

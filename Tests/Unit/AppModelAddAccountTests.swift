@@ -117,6 +117,55 @@ final class AppModelAddAccountTests: XCTestCase {
         _ = await secondSync.value
     }
 
+    func testStaleSyncNowResetsSyncingState() async throws {
+        let setup = try makeSUT(testName: #function)
+        let started = AsyncGate()
+        let release = AsyncGate()
+        setup.repository.syncHandler = {
+            await started.open()
+            await release.wait()
+            return .success
+        }
+
+        let sync = Task { await setup.appModel.syncNow() }
+        await started.wait()
+        XCTAssertTrue(setup.appModel.isSyncing)
+        setup.configStore.sessionRevision += 1
+        await release.open()
+        _ = await sync.value
+
+        XCTAssertFalse(setup.appModel.isSyncing)
+    }
+
+    func testStaleLoginAttemptResetsSyncingState() async throws {
+        let setup = try makeSUT(testName: #function)
+        let started = AsyncGate()
+        let release = AsyncGate()
+        setup.repository.syncHandler = {
+            await started.open()
+            await release.wait()
+            return .success
+        }
+
+        let login = Task { await setup.appModel.attemptLogin(apiKey: "replacement-key") }
+        await started.wait()
+        XCTAssertTrue(setup.appModel.isSyncing)
+        setup.configStore.sessionRevision += 1
+        await release.open()
+        await login.value
+
+        XCTAssertFalse(setup.appModel.isSyncing)
+    }
+
+    func testSuccessfulLoginAdvancesSessionRevisionOnce() async throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.sessionRevision = 41
+
+        await setup.appModel.attemptLogin(apiKey: "replacement-key")
+
+        XCTAssertEqual(setup.configStore.sessionRevision, 42)
+    }
+
     func testCreateForbiddenPreservesAuthenticatedSessionAndCache() async throws {
         let setup = try makeSUT(testName: #function)
         setup.appModel.sessionState = .unlocked
@@ -204,7 +253,7 @@ final class AppModelAddAccountTests: XCTestCase {
             return (response, iconData)
         }
         let cache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
-        await cache.prune(keeping: [])
+        await cache.prune(keeping: [], sessionRevision: 0)
         let setup = try makeSUT(testName: #function, iconCache: cache)
         setup.repository.createdAccount = AccountEntity(
             remoteID: 10,

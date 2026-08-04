@@ -73,6 +73,73 @@ private final class RequestGate: @unchecked Sendable {
     }
 }
 
+private final class CacheOperationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isSuspended = false
+    private var didSuspend = false
+    private let release = DispatchSemaphore(value: 0)
+
+    func waitUntilSuspended() async {
+        while !lock.withLock({ isSuspended }) {
+            await Task.yield()
+        }
+    }
+
+    func resume() {
+        release.signal()
+    }
+
+    func suspendOnce() {
+        let shouldSuspend = lock.withLock {
+            guard !didSuspend else { return false }
+            didSuspend = true
+            isSuspended = true
+            return true
+        }
+        if shouldSuspend {
+            release.wait()
+        }
+    }
+}
+
+private final class GatedCacheFileManager: FileManager {
+    enum Operation {
+        case prune
+        case clear
+    }
+
+    private let operation: Operation
+    private let gate: CacheOperationGate
+
+    init(operation: Operation, gate: CacheOperationGate) {
+        self.operation = operation
+        self.gate = gate
+        super.init()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options mask: DirectoryEnumerationOptions = []
+    ) throws -> [URL] {
+        if operation == .prune {
+            gate.suspendOnce()
+        }
+        return try super.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: mask)
+    }
+
+    override func removeItem(at URL: URL) throws {
+        if operation == .clear {
+            gate.suspendOnce()
+        }
+        try super.removeItem(at: URL)
+    }
+}
+
 private actor AsyncGate {
     private var isOpen = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -320,6 +387,43 @@ final class AppModelStateMachineTests: XCTestCase {
         XCTAssertTrue(fetched.isEmpty)
     }
 
+    func testLogoutAdvancesSessionRevisionOnce() async throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.sessionRevision = 41
+
+        await setup.appModel.logout()
+
+        XCTAssertEqual(setup.configStore.sessionRevision, 42)
+    }
+
+    func testMissingSessionSyncLogoutAdvancesSessionRevisionOnce() async throws {
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.sessionRevision = 41
+        setup.appModel.sessionState = .unlocked
+
+        _ = await setup.appModel.syncNow()
+
+        XCTAssertEqual(setup.configStore.sessionRevision, 42)
+        XCTAssertEqual(setup.appModel.sessionState, .loggedOut)
+    }
+
+    func testForegroundUnauthorizedAdvancesSessionRevisionOnce() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+        setup.configStore.sessionRevision = 41
+        try secretStore.saveAPIKey("api-key")
+        setup.appModel.sessionState = .unlocked
+
+        _ = await setup.appModel.syncNow()
+
+        XCTAssertEqual(setup.configStore.sessionRevision, 42)
+        XCTAssertEqual(setup.appModel.sessionState, .reloginRequired)
+    }
+
     func testIconURLBuildsStorageIconURL() throws {
         let setup = try makeSUT(testName: #function)
         setup.configStore.baseURLString = "https://example.com/base"
@@ -388,13 +492,122 @@ final class AppModelStateMachineTests: XCTestCase {
         await cache.cache(data: Data("kept".utf8), for: keptURL)
         await cache.cache(data: Data("stale".utf8), for: staleURL)
 
-        await cache.prune(keeping: [keptURL])
+        await cache.prune(keeping: [keptURL], sessionRevision: 0)
 
         let keptExists = await cache.hasCachedData(for: keptURL)
         let staleExists = await cache.hasCachedData(for: staleURL)
         XCTAssertTrue(keptExists)
         XCTAssertFalse(staleExists)
 
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheRejectsStalePruneAfterReplacementSessionAdmission() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let replacementURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
+
+        await cache.advanceSession(to: 2)
+        await cache.cache(data: Data("replacement".utf8), for: replacementURL)
+        await cache.prune(keeping: [], sessionRevision: 1)
+
+        let hasReplacement = await cache.hasCachedData(for: replacementURL)
+        XCTAssertTrue(hasReplacement)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheRejectsStaleClearAfterReplacementSessionAdmission() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let replacementURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
+
+        await cache.advanceSession(to: 2)
+        await cache.cache(data: Data("replacement".utf8), for: replacementURL)
+        await cache.clear(sessionRevision: 1)
+
+        let hasReplacement = await cache.hasCachedData(for: replacementURL)
+        XCTAssertTrue(hasReplacement)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheReplacementAdmissionClearsStaleAllowlist() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let replacementURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
+
+        await cache.advanceSession(to: 1)
+        await cache.prune(keeping: [], sessionRevision: 1)
+        await cache.advanceSession(to: 2)
+        await cache.cache(data: visiblePNGData(), for: replacementURL)
+
+        let loaded = await cache.imageData(for: replacementURL, allowRemoteLoad: false)
+        XCTAssertNotNil(loaded)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testQueuedStalePruneCompletesBeforeReplacementCacheWork() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let gate = CacheOperationGate()
+        let cache = AccountIconCache(
+            fileManager: GatedCacheFileManager(operation: .prune, gate: gate),
+            cacheDirectory: directory
+        )
+        let replacementURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
+        await cache.advanceSession(to: 1)
+
+        let stalePrune = Task {
+            await cache.prune(keeping: [], sessionRevision: 1)
+        }
+        await gate.waitUntilSuspended()
+        let replacementAdmission = Task {
+            await cache.advanceSession(to: 2)
+        }
+        gate.resume()
+        await stalePrune.value
+        await replacementAdmission.value
+        await cache.cache(data: visiblePNGData(), for: replacementURL)
+
+        let loaded = await cache.imageData(for: replacementURL, allowRemoteLoad: false)
+        XCTAssertNotNil(loaded)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testQueuedStaleClearCompletesBeforeReplacementCacheWork() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let gate = CacheOperationGate()
+        let cache = AccountIconCache(
+            fileManager: GatedCacheFileManager(operation: .clear, gate: gate),
+            cacheDirectory: directory
+        )
+        let oldURL = URL(string: "https://old.example/storage/icons/old.png")!
+        let replacementURL = URL(string: "https://replacement.example/storage/icons/replacement.png")!
+        await cache.advanceSession(to: 1)
+        await cache.cache(data: Data("old".utf8), for: oldURL)
+
+        let staleClear = Task {
+            await cache.clear(sessionRevision: 1)
+        }
+        await gate.waitUntilSuspended()
+        let replacementAdmission = Task {
+            await cache.advanceSession(to: 2)
+        }
+        gate.resume()
+        await staleClear.value
+        await replacementAdmission.value
+        await cache.cache(data: Data("replacement".utf8), for: replacementURL)
+
+        let hasReplacement = await cache.hasCachedData(for: replacementURL)
+        XCTAssertTrue(hasReplacement)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -1008,6 +1221,22 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
         let hasCachedData = await cache.hasCachedData(for: iconURL)
         XCTAssertFalse(hasCachedData)
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testBackgroundUnauthorizedAdvancesSessionRevisionOnce() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+        setup.configStore.sessionRevision = 41
+        try secretStore.saveAPIKey("api-key")
+
+        _ = await setup.manager.runBackgroundSync(isCancelled: { false })
+
+        XCTAssertEqual(setup.configStore.sessionRevision, 42)
+        XCTAssertTrue(setup.configStore.requiresRelogin)
     }
 
     func testStaleBackgroundSuccessCannotAffectReplacementSession() async throws {

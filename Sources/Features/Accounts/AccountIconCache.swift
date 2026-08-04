@@ -48,6 +48,7 @@ actor AccountIconCache {
     private var inFlightImageLoads: [URL: InFlightImageLoad] = [:]
     private var memoryImageData: [URL: MemoryImageData] = [:]
     private var cacheEpoch = 0
+    private var sessionRevision = 0
     private var allowedURLs: Set<URL>?
     private var urlRevisions: [URL: Int] = [:]
     private var activeRasterizationCount = 0
@@ -328,7 +329,27 @@ actor AccountIconCache {
         return cacheData
     }
 
-    func clear() {
+    func clear(sessionRevision: Int) {
+        guard sessionRevision == self.sessionRevision else {
+            return
+        }
+        clearCache()
+    }
+
+    func advanceSession(to revision: Int) {
+        guard revision > sessionRevision else {
+            return
+        }
+        sessionRevision = revision
+        for load in inFlightImageLoads.values {
+            load.task.cancel()
+        }
+        inFlightImageLoads.removeAll()
+        cacheEpoch += 1
+        allowedURLs = nil
+    }
+
+    private func clearCache() {
         for load in inFlightImageLoads.values {
             load.task.cancel()
         }
@@ -352,7 +373,14 @@ actor AccountIconCache {
         }
     }
 
-    func prune(keeping urls: Set<URL>) {
+    func prune(keeping urls: Set<URL>, sessionRevision: Int) {
+        guard sessionRevision == self.sessionRevision else {
+            return
+        }
+        pruneCache(keeping: urls)
+    }
+
+    private func pruneCache(keeping urls: Set<URL>) {
         for (url, load) in inFlightImageLoads where !urls.contains(url) {
             load.task.cancel()
         }
