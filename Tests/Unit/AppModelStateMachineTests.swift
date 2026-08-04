@@ -1778,13 +1778,14 @@ final class AppModelStateMachineTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    func testAccountIconCacheReturnsStaleIconBeforeRefreshing() async throws {
+    func testAccountIconCachePublishesStaleIconBeforeRefreshedIcon() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let url = URL(string: "https://example.com/storage/icons/github.png")!
         let cachedData = visiblePNGData()
         let refreshedData = visiblePNGData(color: .systemRed)
+        let gate = ConcurrentOperationGate()
         let cacheWriter = AccountIconCache(cacheDirectory: directory)
         await cacheWriter.cache(data: cachedData, for: url)
         let cacheFile = try XCTUnwrap(
@@ -1794,22 +1795,166 @@ final class AppModelStateMachineTests: XCTestCase {
             [.modificationDate: Date(timeIntervalSince1970: 0)],
             ofItemAtPath: cacheFile.path
         )
-        MockURLProtocol.requestHandler = { request in
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (response, refreshedData)
-        }
-        let cache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: directory)
+        let cache = AccountIconCache(
+            session: makeGatedIconURLSession(gate: gate, sourceData: refreshedData),
+            cacheDirectory: directory
+        )
 
-        let loadedData = await cache.imageData(for: url)
+        let updates = await cache.imageUpdates(for: url, allowRemoteLoad: true)
+        var iterator = updates.makeAsyncIterator()
+        let initialData = await iterator.next()
+        await gate.waitUntilStarted(value: url.lastPathComponent)
+        gate.resume(value: url.lastPathComponent)
+        let replacementData = await iterator.next()
 
-        try assertSameIconSemantics(loadedData, cachedData)
-        let refreshedPixels = try normalizedIconPixels(refreshedData)
-        var storedData = try Data(contentsOf: cacheFile)
-        for _ in 0..<50 where (try? normalizedIconPixels(storedData)) != refreshedPixels {
-            try await Task.sleep(for: .milliseconds(10))
-            storedData = try Data(contentsOf: cacheFile)
+        try assertSameIconSemantics(initialData, cachedData)
+        try assertSameIconSemantics(replacementData, refreshedData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheDoesNotPublishDuplicateBytes() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: visiblePNGData(), for: url)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
+        var iterator = updates.makeAsyncIterator()
+        let firstValue = await iterator.next()
+        let initialData = try XCTUnwrap(firstValue)
+
+        await cache.cache(data: initialData, for: url)
+        await cache.clear(sessionRevision: 0)
+        let nextValue = await iterator.next()
+
+        XCTAssertNil(nextValue)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheBuffersNewestPublishedBytes() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: visiblePNGData(), for: url)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
+        var iterator = updates.makeAsyncIterator()
+        _ = await iterator.next()
+        let olderReplacement = visiblePNGData(color: .systemRed)
+        let newestReplacement = visiblePNGData(color: .systemGreen)
+
+        await cache.cache(data: olderReplacement, for: url)
+        await cache.cache(data: newestReplacement, for: url)
+        let bufferedData = await iterator.next()
+
+        try assertSameIconSemantics(bufferedData, newestReplacement)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheRemovesUpdateObserverOnCancellation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let gate = ConcurrentOperationGate()
+        let cache = AccountIconCache(
+            session: makeGatedIconURLSession(gate: gate, sourceData: visiblePNGData()),
+            cacheDirectory: directory
+        )
+        let updates = await cache.imageUpdates(for: url, allowRemoteLoad: true)
+        let waitingForUpdate = Task {
+            var iterator = updates.makeAsyncIterator()
+            return await iterator.next()
         }
-        try assertSameIconSemantics(storedData, refreshedData)
+        await gate.waitUntilStarted(value: url.lastPathComponent)
+
+        waitingForUpdate.cancel()
+        let value = await waitingForUpdate.value
+        while await cache.resourceAdmissionState().activeDownloads != 0 {
+            await Task.yield()
+        }
+        let observerCount = await cache.updateObserverCount(for: url)
+
+        XCTAssertNil(value)
+        XCTAssertEqual(observerCount, 0)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheDoesNotPublishAfterBackgroundRefreshCancellation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: visiblePNGData(), for: url)
+        let cacheFile = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 0)],
+            ofItemAtPath: cacheFile.path
+        )
+        let gate = ConcurrentOperationGate()
+        let cache = AccountIconCache(
+            session: makeGatedIconURLSession(gate: gate, sourceData: visiblePNGData(color: .systemRed)),
+            cacheDirectory: directory
+        )
+        let updates = await cache.imageUpdates(for: url, allowRemoteLoad: true)
+        var iterator = updates.makeAsyncIterator()
+        let initialData = await iterator.next()
+        await gate.waitUntilStarted(value: url.lastPathComponent)
+
+        await cache.cancelUnownedRefreshes()
+        while await cache.resourceAdmissionState().activeDownloads != 0 {
+            await Task.yield()
+        }
+        await cache.clear(sessionRevision: 0)
+        let replacementData = await iterator.next()
+
+        try assertSameIconSemantics(initialData, visiblePNGData())
+        XCTAssertNil(replacementData)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheClearFinishesUpdateObservers() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: visiblePNGData(), for: url)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
+        var iterator = updates.makeAsyncIterator()
+        _ = await iterator.next()
+
+        await cache.clear(sessionRevision: 0)
+        let nextValue = await iterator.next()
+
+        XCTAssertNil(nextValue)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCachePruneFinishesObserversForRemovedURLs() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: visiblePNGData(), for: url)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
+        var iterator = updates.makeAsyncIterator()
+        _ = await iterator.next()
+
+        await cache.prune(keeping: [], sessionRevision: 0)
+        let nextValue = await iterator.next()
+
+        XCTAssertNil(nextValue)
         try? FileManager.default.removeItem(at: directory)
     }
 

@@ -761,6 +761,18 @@ extension AppModel {
         await iconCache.imageData(for: url, allowRemoteLoad: allowRemoteLoad)
     }
 
+    func iconDataUpdates(for url: URL, allowRemoteLoad: Bool = true) async -> AsyncStream<Data> {
+        await iconCache.imageUpdates(for: url, allowRemoteLoad: allowRemoteLoad)
+    }
+
+    var iconSessionRevision: Int {
+        configStore.sessionRevision
+    }
+
+    func isCurrentIconLoad(url: URL, filename: String?, sessionRevision: Int) -> Bool {
+        configStore.sessionRevision == sessionRevision && iconURL(for: filename) == url
+    }
+
     private func pruneIconCache(baseURL: URL, sessionRevision: Int) async {
         do {
             let accounts = try modelContext.fetch(FetchDescriptor<AccountEntity>())

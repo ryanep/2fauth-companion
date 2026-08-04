@@ -428,40 +428,50 @@ private struct AccountIconView: View {
     }
 
     private var loadID: String {
-        "\(account.iconFilename ?? "")|\(scenePhase)"
+        "\(account.iconFilename ?? "")|\(scenePhase)|\(appModel.iconSessionRevision)"
     }
 
     #if canImport(UIKit)
         @MainActor
         private func loadIcon() async {
             let requestedFilename = account.iconFilename
+            let requestedSessionRevision = appModel.iconSessionRevision
             guard canLoadAccountIcon(in: scenePhase),
                 !Task.isCancelled
             else {
                 return
             }
-            guard image == nil || loadedFilename != requestedFilename else {
-                return
+            if loadedFilename != requestedFilename {
+                image = nil
+                loadedFilename = nil
             }
 
-            image = nil
-            loadedFilename = nil
-            guard
-                let url = appModel.iconURL(for: requestedFilename),
-                let data = await appModel.iconData(for: url, allowRemoteLoad: scenePhase == .active)
-            else {
+            guard let url = appModel.iconURL(for: requestedFilename) else {
                 return
             }
+            let updates = await appModel.iconDataUpdates(
+                for: url,
+                allowRemoteLoad: scenePhase == .active
+            )
 
-            guard let loadedImage = UIImage(data: data) else {
-                ErrorReporter.report("account.icon_decode_failed")
-                return
+            for await data in updates {
+                guard !Task.isCancelled,
+                    account.iconFilename == requestedFilename,
+                    appModel.isCurrentIconLoad(
+                        url: url,
+                        filename: requestedFilename,
+                        sessionRevision: requestedSessionRevision
+                    )
+                else {
+                    return
+                }
+                guard let loadedImage = UIImage(data: data) else {
+                    ErrorReporter.report("account.icon_decode_failed")
+                    continue
+                }
+                image = loadedImage
+                loadedFilename = requestedFilename
             }
-            guard !Task.isCancelled, account.iconFilename == requestedFilename else {
-                return
-            }
-            image = loadedImage
-            loadedFilename = requestedFilename
         }
     #endif
 }

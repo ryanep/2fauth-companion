@@ -61,6 +61,14 @@ actor AccountIconCache {
         var accessOrder: UInt64
     }
 
+    private struct ImageUpdateObserver {
+        let continuation: AsyncStream<Data>.Continuation
+        var initialLoadTask: Task<Void, Never>?
+        var latestData: Data?
+        var pendingData: Data?
+        var didPublishInitial = false
+    }
+
     private struct SlotWaiter {
         let id: UUID
         let continuation: CheckedContinuation<Bool, Never>
@@ -91,6 +99,7 @@ actor AccountIconCache {
     private let rasterizeSVG: SVGRasterizer
     private let policy: AccountIconCachePolicy
     private var inFlightImageLoads: [URL: InFlightImageLoad] = [:]
+    private var imageUpdateObservers: [URL: [UUID: ImageUpdateObserver]] = [:]
     private var memoryImageData: [URL: MemoryImageData] = [:]
     private var memoryByteCount = 0
     private var memoryAccessOrder: UInt64 = 0
@@ -255,6 +264,95 @@ actor AccountIconCache {
         return await coalescedImageData(for: url, cachedURL: cachedURL, cachedData: nil)
     }
 
+    func imageUpdates(for url: URL, allowRemoteLoad: Bool = true) -> AsyncStream<Data> {
+        let observerID = UUID()
+        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeImageUpdateObserver(observerID, for: url)
+            }
+        }
+        imageUpdateObservers[url, default: [:]][observerID] = ImageUpdateObserver(
+            continuation: continuation
+        )
+        let initialLoadTask = Task { [weak self] in
+            guard let self else {
+                continuation.finish()
+                return
+            }
+            let data = await self.imageData(for: url, allowRemoteLoad: allowRemoteLoad)
+            await self.publishInitialImageData(data, to: observerID, for: url)
+        }
+        imageUpdateObservers[url]?[observerID]?.initialLoadTask = initialLoadTask
+        return stream
+    }
+
+    func updateObserverCount(for url: URL) -> Int {
+        imageUpdateObservers[url]?.count ?? 0
+    }
+
+    private func publishInitialImageData(_ data: Data?, to observerID: UUID, for url: URL) {
+        guard var observer = imageUpdateObservers[url]?[observerID] else {
+            return
+        }
+        observer.initialLoadTask = nil
+        observer.didPublishInitial = true
+        var values: [Data] = []
+        if let data {
+            observer.latestData = data
+            values.append(data)
+        }
+        if let pendingData = observer.pendingData, pendingData != observer.latestData {
+            observer.latestData = pendingData
+            values.append(pendingData)
+        }
+        observer.pendingData = nil
+        imageUpdateObservers[url]?[observerID] = observer
+        values.forEach { observer.continuation.yield($0) }
+    }
+
+    private func publishReplacementImageData(_ data: Data, for url: URL) {
+        guard var observers = imageUpdateObservers[url] else {
+            return
+        }
+        for (observerID, var observer) in observers {
+            if observer.didPublishInitial {
+                guard observer.latestData != data else {
+                    continue
+                }
+                observer.latestData = data
+                observer.continuation.yield(data)
+            } else if observer.pendingData != data {
+                observer.pendingData = data
+            }
+            observers[observerID] = observer
+        }
+        imageUpdateObservers[url] = observers
+    }
+
+    private func removeImageUpdateObserver(_ observerID: UUID, for url: URL) {
+        guard let observer = imageUpdateObservers[url]?.removeValue(forKey: observerID) else {
+            return
+        }
+        observer.initialLoadTask?.cancel()
+        if imageUpdateObservers[url]?.isEmpty == true {
+            imageUpdateObservers[url] = nil
+        }
+    }
+
+    private func finishImageUpdateObservers(for urls: Set<URL>? = nil) {
+        let finishedURLs = urls ?? Set(imageUpdateObservers.keys)
+        for url in finishedURLs {
+            guard let observers = imageUpdateObservers.removeValue(forKey: url) else {
+                continue
+            }
+            for observer in observers.values {
+                observer.initialLoadTask?.cancel()
+                observer.continuation.finish()
+            }
+        }
+    }
+
     private func coalescedImageData(for url: URL, cachedURL: URL, cachedData: Data?) async -> Data? {
         let (loadID, task) = startImageLoad(
             url: url,
@@ -400,6 +498,7 @@ actor AccountIconCache {
         trimDiskCache()
         urlRevisions[url] = revision + 1
         storeInMemory(cacheData, for: url, modificationDate: Date())
+        publishReplacementImageData(cacheData, for: url)
         return cacheData
     }
 
@@ -419,6 +518,7 @@ actor AccountIconCache {
             load.task.cancel()
         }
         inFlightImageLoads.removeAll()
+        finishImageUpdateObservers()
         cacheEpoch += 1
         allowedURLs = nil
     }
@@ -428,6 +528,7 @@ actor AccountIconCache {
             load.task.cancel()
         }
         inFlightImageLoads.removeAll()
+        finishImageUpdateObservers()
         memoryImageData.removeAll()
         memoryByteCount = 0
         cacheEpoch += 1
@@ -453,6 +554,7 @@ actor AccountIconCache {
     }
 
     private func pruneCache(keeping urls: Set<URL>) {
+        finishImageUpdateObservers(for: Set(imageUpdateObservers.keys).subtracting(urls))
         for (url, load) in inFlightImageLoads where !urls.contains(url) {
             load.task.cancel()
         }
@@ -478,6 +580,7 @@ actor AccountIconCache {
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         try? data.write(to: cacheURL(for: url), options: [.atomic])
         urlRevisions[url, default: 0] += 1
+        publishReplacementImageData(data, for: url)
     }
 
     func hasCachedData(for url: URL) -> Bool {
@@ -584,6 +687,7 @@ actor AccountIconCache {
         trimDiskCache()
         urlRevisions[sourceURL] = revision + 1
         storeInMemory(normalizedData, for: sourceURL, modificationDate: Date())
+        publishReplacementImageData(normalizedData, for: sourceURL)
         return normalizedData
     }
 
