@@ -34,6 +34,13 @@ struct AccountIconCachePolicy: Sendable {
     )
 }
 
+struct AccountIconCacheResourceAdmissionState: Sendable {
+    let activeDownloads: Int
+    let queuedDownloads: Int
+    let activeRasterizations: Int
+    let queuedRasterizations: Int
+}
+
 actor AccountIconCache {
     private struct InFlightImageLoad {
         let id: UUID
@@ -61,7 +68,7 @@ actor AccountIconCache {
 
     private struct DiskFile {
         let url: URL
-        let byteCount: Int
+        let byteCount: Int?
         let modificationDate: Date
         let isAllowed: Bool
     }
@@ -477,6 +484,15 @@ actor AccountIconCache {
         fileManager.fileExists(atPath: cacheURL(for: url).path)
     }
 
+    func resourceAdmissionState() -> AccountIconCacheResourceAdmissionState {
+        AccountIconCacheResourceAdmissionState(
+            activeDownloads: activeDownloadCount,
+            queuedDownloads: downloadWaiters.count,
+            activeRasterizations: activeRasterizationCount,
+            queuedRasterizations: rasterizationWaiters.count
+        )
+    }
+
     private func downloadImageData(from url: URL) async throws -> Data? {
         guard await acquireSlot(.download) else {
             throw CancellationError()
@@ -720,30 +736,29 @@ actor AccountIconCache {
         guard let files = try? fileManager.contentsOfDirectory(
             at: cacheDirectory,
             includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
             return
         }
         let allowedFilenames = allowedURLs.map { Set($0.map(cacheFilename(for:))) }
-        var diskFiles = files.compactMap { url -> DiskFile? in
-            guard let values = try? url.resourceValues(
+        var diskFiles = files.map { url -> DiskFile in
+            let values = try? url.resourceValues(
                 forKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
-            ), values.isRegularFile == true else {
-                return nil
-            }
-            guard let byteCount = values.fileSize else {
-                try? fileManager.removeItem(at: url)
-                return nil
-            }
+            )
             return DiskFile(
                 url: url,
-                byteCount: byteCount,
-                modificationDate: values.contentModificationDate ?? .distantPast,
+                byteCount: values?.isRegularFile == true ? values?.fileSize : nil,
+                modificationDate: values?.contentModificationDate ?? .distantPast,
                 isAllowed: allowedFilenames?.contains(url.lastPathComponent) ?? true
             )
         }
-        var totalBytes = diskFiles.reduce(0) { $0 + $1.byteCount }
-        guard diskFiles.count > policy.maximumDiskFileCount || totalBytes > policy.maximumDiskBytes else {
+        var fileCount = diskFiles.count
+        var unknownSizeCount = diskFiles.count(where: { $0.byteCount == nil })
+        var totalBytes = diskFiles.reduce(0) { $0 + ($1.byteCount ?? 0) }
+        guard unknownSizeCount > 0
+            || fileCount > policy.maximumDiskFileCount
+            || totalBytes > policy.maximumDiskBytes
+        else {
             return
         }
         diskFiles.sort {
@@ -752,13 +767,18 @@ actor AccountIconCache {
             }
             return $0.modificationDate < $1.modificationDate
         }
-        while !diskFiles.isEmpty,
-            diskFiles.count > policy.maximumDiskFileCount || totalBytes > policy.maximumDiskBytes
+        for file in diskFiles where unknownSizeCount > 0
+            || fileCount > policy.maximumDiskFileCount
+            || totalBytes > policy.maximumDiskBytes
         {
-            let file = diskFiles.removeFirst()
             do {
                 try fileManager.removeItem(at: file.url)
-                totalBytes -= file.byteCount
+                fileCount -= 1
+                if let byteCount = file.byteCount {
+                    totalBytes -= byteCount
+                } else {
+                    unknownSizeCount -= 1
+                }
             } catch {
                 continue
             }
@@ -773,12 +793,7 @@ actor AccountIconCache {
 
             let width = cgImage.width
             let height = cgImage.height
-            guard width > 0,
-                height > 0,
-                width <= policy.maximumSourceDimension,
-                height <= policy.maximumSourceDimension,
-                width <= policy.maximumSourcePixels / height
-            else {
+            guard width > 0, height > 0 else {
                 return false
             }
 

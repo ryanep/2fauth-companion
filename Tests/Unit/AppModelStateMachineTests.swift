@@ -140,6 +140,42 @@ private final class GatedCacheFileManager: FileManager {
     }
 }
 
+private final class RemovalFailureRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    func record() {
+        lock.withLock { value += 1 }
+    }
+
+    var count: Int {
+        lock.withLock { value }
+    }
+}
+
+private final class FailingRemovalFileManager: FileManager {
+    private let failingPath: String
+    private let recorder: RemovalFailureRecorder
+
+    init(failingURL: URL, recorder: RemovalFailureRecorder) {
+        failingPath = failingURL.path
+        self.recorder = recorder
+        super.init()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func removeItem(at url: URL) throws {
+        if failingPath == url.path {
+            recorder.record()
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.removeItem(at: url)
+    }
+}
+
 private actor AsyncGate {
     private var isOpen = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -171,12 +207,13 @@ private actor AsyncGate {
 private final class ConcurrentOperationGate: @unchecked Sendable {
     private let lock = NSLock()
     private var startedValues: [String] = []
-    private var completions: [() -> Void] = []
+    private var operations: [UUID: (value: String, completion: () -> Void)] = [:]
     private var resumeCredits = 0
     private var activeCount = 0
     private var peakActiveCount = 0
 
-    func suspend(value: String, completion: @escaping () -> Void) {
+    func suspend(value: String, completion: @escaping () -> Void) -> UUID {
+        let id = UUID()
         let shouldResume = lock.withLock {
             startedValues.append(value)
             activeCount += 1
@@ -186,10 +223,11 @@ private final class ConcurrentOperationGate: @unchecked Sendable {
                 activeCount -= 1
                 return true
             }
-            completions.append(completion)
+            operations[id] = (value, completion)
             return false
         }
         if shouldResume { completion() }
+        return id
     }
 
     func waitUntilStarted(_ count: Int) async {
@@ -198,17 +236,37 @@ private final class ConcurrentOperationGate: @unchecked Sendable {
         }
     }
 
-    func resume(_ count: Int) {
-        for _ in 0..<count {
-            let completion = lock.withLock { () -> (() -> Void)? in
-                guard !completions.isEmpty else {
-                    resumeCredits += 1
-                    return nil
-                }
-                activeCount -= 1
-                return completions.removeFirst()
-            }
-            completion?()
+    func waitUntilStarted(value: String) async {
+        while !lock.withLock({ startedValues.contains(value) }) {
+            await Task.yield()
+        }
+    }
+
+    func resume(value: String) {
+        let completion = lock.withLock { () -> (() -> Void)? in
+            guard let entry = operations.first(where: { $0.value.value == value }) else { return nil }
+            operations.removeValue(forKey: entry.key)
+            activeCount -= 1
+            return entry.value.completion
+        }
+        completion?()
+    }
+
+    func resumeCurrentAndNext(_ count: Int) {
+        let completions = lock.withLock { () -> [() -> Void] in
+            let current = operations.values.map(\.completion)
+            operations.removeAll()
+            activeCount -= current.count
+            resumeCredits += max(0, count - current.count)
+            return current
+        }
+        completions.forEach { $0() }
+    }
+
+    func cancel(id: UUID) {
+        lock.withLock {
+            guard operations.removeValue(forKey: id) != nil else { return }
+            activeCount -= 1
         }
     }
 
@@ -223,7 +281,8 @@ private final class ConcurrentOperationGate: @unchecked Sendable {
 
 private final class GatedIconURLProtocol: URLProtocol {
     nonisolated(unsafe) static var gate: ConcurrentOperationGate?
-    nonisolated(unsafe) static var sourceData = Data()
+    nonisolated(unsafe) static var sourceData: @Sendable (URL) -> Data = { _ in Data() }
+    private var operationID: UUID?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
 
@@ -234,19 +293,26 @@ private final class GatedIconURLProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
-        gate.suspend(value: url.lastPathComponent) { [weak self] in
+        operationID = gate.suspend(value: url.lastPathComponent) { [weak self] in
             guard let self else { return }
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Self.sourceData)
+            client?.urlProtocol(self, didLoad: Self.sourceData(url))
             client?.urlProtocolDidFinishLoading(self)
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        if let operationID {
+            Self.gate?.cancel(id: operationID)
+        }
+    }
 }
 
-private func makeGatedIconURLSession(gate: ConcurrentOperationGate, sourceData: Data) -> URLSession {
+private func makeGatedIconURLSession(
+    gate: ConcurrentOperationGate,
+    sourceData: @escaping @Sendable (URL) -> Data
+) -> URLSession {
     GatedIconURLProtocol.gate = gate
     GatedIconURLProtocol.sourceData = sourceData
     let configuration = URLSessionConfiguration.ephemeral
@@ -254,17 +320,23 @@ private func makeGatedIconURLSession(gate: ConcurrentOperationGate, sourceData: 
     return URLSession(configuration: configuration)
 }
 
+private func makeGatedIconURLSession(gate: ConcurrentOperationGate, sourceData: Data) -> URLSession {
+    makeGatedIconURLSession(gate: gate) { _ in sourceData }
+}
+
 private actor RasterizationGate {
     private var startedValues: [String] = []
     private var activeCount = 0
     private var peakActiveCount = 0
-    private let release = AsyncGate()
+    private var continuations: [String: CheckedContinuation<Void, Never>] = [:]
 
     func suspend(value: String) async {
         startedValues.append(value)
         activeCount += 1
         peakActiveCount = max(peakActiveCount, activeCount)
-        await release.wait()
+        await withCheckedContinuation { continuation in
+            continuations[value] = continuation
+        }
         activeCount -= 1
     }
 
@@ -274,8 +346,14 @@ private actor RasterizationGate {
         }
     }
 
-    func resume() async {
-        await release.open()
+    func waitUntilStarted(value: String) async {
+        while !startedValues.contains(value) {
+            await Task.yield()
+        }
+    }
+
+    func resume(value: String) {
+        continuations.removeValue(forKey: value)?.resume()
     }
 
     var started: [String] { startedValues }
@@ -308,7 +386,9 @@ final class AppModelStateMachineTests: XCTestCase {
 
         private func visiblePNGData(dimension: Int, metadata: String? = nil) throws -> Data {
             let size = CGSize(width: dimension, height: dimension)
-            let data = UIGraphicsImageRenderer(size: size).pngData { context in
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let data = UIGraphicsImageRenderer(size: size, format: format).pngData { context in
                 UIColor.systemBlue.setFill()
                 context.fill(CGRect(origin: .zero, size: size))
             }
@@ -325,6 +405,16 @@ final class AppModelStateMachineTests: XCTestCase {
             CGImageDestinationAddImage(destination, image, properties as CFDictionary)
             XCTAssertTrue(CGImageDestinationFinalize(destination))
             return output as Data
+        }
+
+        private func visiblePNGData(width: Int, height: Int) -> Data {
+            let size = CGSize(width: width, height: height)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            return UIGraphicsImageRenderer(size: size, format: format).pngData { context in
+                UIColor.systemBlue.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+            }
         }
 
         private func assertNormalizedIcon(_ data: Data?, sourceData: Data? = nil) throws {
@@ -391,6 +481,9 @@ final class AppModelStateMachineTests: XCTestCase {
         }
 
         private func iconCachePolicy(
+            maximumSourceBytes: Int = 2 * 1_024 * 1_024,
+            maximumSourceDimension: Int = 2_048,
+            maximumSourcePixels: Int = 4_194_304,
             maximumMemoryBytes: Int = 16 * 1_024 * 1_024,
             maximumDiskBytes: Int = 32 * 1_024 * 1_024,
             maximumDiskFileCount: Int = 256,
@@ -398,9 +491,9 @@ final class AppModelStateMachineTests: XCTestCase {
             maximumConcurrentRasterizations: Int = 4
         ) -> AccountIconCachePolicy {
             AccountIconCachePolicy(
-                maximumSourceBytes: 2 * 1_024 * 1_024,
-                maximumSourceDimension: 2_048,
-                maximumSourcePixels: 4_194_304,
+                maximumSourceBytes: maximumSourceBytes,
+                maximumSourceDimension: maximumSourceDimension,
+                maximumSourcePixels: maximumSourcePixels,
                 normalizedDimension: 128,
                 maximumMemoryBytes: maximumMemoryBytes,
                 maximumDiskBytes: maximumDiskBytes,
@@ -912,6 +1005,103 @@ final class AppModelStateMachineTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    func testAccountIconCacheAcceptsExactSourceByteLimitAndRejectsNextByte() async throws {
+        let exactURL = URL(string: "https://example.com/storage/icons/exact-bytes.png")!
+        let excessURL = URL(string: "https://example.com/storage/icons/excess-bytes.png")!
+        let exactData = try visiblePNGData(dimension: 32)
+        var excessData = exactData
+        excessData.append(0)
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, request.url == exactURL ? exactData : excessData)
+        }
+        let policy = iconCachePolicy(maximumSourceBytes: exactData.count)
+        let exactDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let excessDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let exactCache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: exactDirectory,
+            policy: policy
+        )
+        let excessCache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: excessDirectory,
+            policy: policy
+        )
+
+        let accepted = await exactCache.imageData(for: exactURL)
+        let rejected = await excessCache.imageData(for: excessURL)
+
+        XCTAssertNotNil(accepted)
+        XCTAssertNil(rejected)
+        try? FileManager.default.removeItem(at: exactDirectory)
+        try? FileManager.default.removeItem(at: excessDirectory)
+    }
+
+    func testAccountIconCacheAcceptsExactSourceDimensionAndRejectsNextDimension() async throws {
+        let exactURL = URL(string: "https://example.com/storage/icons/exact-dimension.png")!
+        let excessURL = URL(string: "https://example.com/storage/icons/excess-dimension.png")!
+        let exactData = visiblePNGData(width: 64, height: 64)
+        let excessData = visiblePNGData(width: 65, height: 64)
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, request.url == exactURL ? exactData : excessData)
+        }
+        let policy = iconCachePolicy(maximumSourceDimension: 64, maximumSourcePixels: 65 * 64)
+        let exactDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let excessDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let exactCache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: exactDirectory,
+            policy: policy
+        )
+        let excessCache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: excessDirectory,
+            policy: policy
+        )
+
+        let accepted = await exactCache.imageData(for: exactURL)
+        let rejected = await excessCache.imageData(for: excessURL)
+
+        XCTAssertNotNil(accepted)
+        XCTAssertNil(rejected)
+        try? FileManager.default.removeItem(at: exactDirectory)
+        try? FileManager.default.removeItem(at: excessDirectory)
+    }
+
+    func testAccountIconCacheAcceptsExactSourcePixelsAndRejectsNextPixel() async throws {
+        let exactURL = URL(string: "https://example.com/storage/icons/exact-pixels.png")!
+        let excessURL = URL(string: "https://example.com/storage/icons/excess-pixels.png")!
+        let exactData = visiblePNGData(width: 63, height: 65)
+        let excessData = visiblePNGData(width: 64, height: 64)
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, request.url == exactURL ? exactData : excessData)
+        }
+        let policy = iconCachePolicy(maximumSourceDimension: 65, maximumSourcePixels: 4_095)
+        let exactDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let excessDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let exactCache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: exactDirectory,
+            policy: policy
+        )
+        let excessCache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: excessDirectory,
+            policy: policy
+        )
+
+        let accepted = await exactCache.imageData(for: exactURL)
+        let rejected = await excessCache.imageData(for: excessURL)
+
+        XCTAssertNotNil(accepted)
+        XCTAssertNil(rejected)
+        try? FileManager.default.removeItem(at: exactDirectory)
+        try? FileManager.default.removeItem(at: excessDirectory)
+    }
+
     func testAccountIconCacheEvictsLeastRecentlyUsedMemoryEntryAtExactByteLimit() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
@@ -946,53 +1136,180 @@ final class AppModelStateMachineTests: XCTestCase {
         XCTAssertNotNil(thirdData)
     }
 
-    func testAccountIconCacheTrimsOldestDiskEntriesAtExactAggregateLimits() async throws {
+    func testAccountIconCacheTrimsDiskWhenOnlyFileCountLimitIsExceeded() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let sourceData = try visiblePNGData(dimension: 128)
-        let urls = (1...3).map { URL(string: "https://example.com/storage/icons/disk-\($0).png")! }
+        let urls = (1...3).map { URL(string: "https://example.com/storage/icons/count-\($0).png")! }
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (response, sourceData)
         }
-        let probeDirectory = directory
-            .deletingLastPathComponent()
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            policy: iconCachePolicy(maximumDiskBytes: .max, maximumDiskFileCount: 2)
+        )
+
+        for url in urls {
+            _ = await cache.imageData(for: url)
+        }
+
+        let files = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey]
+        )
+        XCTAssertEqual(files.count, 2)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheTrimsDiskWhenOnlyByteLimitIsExceeded() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let probeDirectory = directory.deletingLastPathComponent()
             .appendingPathComponent("\(UUID().uuidString)-probe", isDirectory: true)
-        let probeCache = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: probeDirectory)
-        let probedData = await probeCache.imageData(for: urls[0])
-        let normalizedData = try XCTUnwrap(probedData)
+        let sourceData = try visiblePNGData(dimension: 128)
+        let urls = (1...3).map { URL(string: "https://example.com/storage/icons/bytes-\($0).png")! }
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, sourceData)
+        }
+        let probe = AccountIconCache(session: makeMockedURLSession(), cacheDirectory: probeDirectory)
+        let probeData = await probe.imageData(for: urls[0])
+        let normalizedSize = try XCTUnwrap(probeData).count
         let cache = AccountIconCache(
             session: makeMockedURLSession(),
             cacheDirectory: directory,
             policy: iconCachePolicy(
-                maximumDiskBytes: normalizedData.count * 2,
-                maximumDiskFileCount: 2
+                maximumDiskBytes: normalizedSize * 2,
+                maximumDiskFileCount: 10
             )
         )
 
         for url in urls {
             _ = await cache.imageData(for: url)
-            try await Task.sleep(for: .milliseconds(10))
         }
 
-        let hasFirst = await cache.hasCachedData(for: urls[0])
-        let hasSecond = await cache.hasCachedData(for: urls[1])
-        let hasThird = await cache.hasCachedData(for: urls[2])
-        XCTAssertFalse(hasFirst)
-        XCTAssertTrue(hasSecond)
-        XCTAssertTrue(hasThird)
         let files = try FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.fileSizeKey]
         )
-        let byteCount = try files.reduce(0) { result, url in
-            result + (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+        let byteCount = try files.reduce(0) {
+            $0 + (try $1.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
         }
         XCTAssertEqual(files.count, 2)
-        XCTAssertLessThanOrEqual(byteCount, normalizedData.count * 2)
+        XCTAssertLessThanOrEqual(byteCount, normalizedSize * 2)
         try? FileManager.default.removeItem(at: directory)
         try? FileManager.default.removeItem(at: probeDirectory)
+    }
+
+    func testAccountIconCacheTrimsNonAllowlistedEntryBeforeAllowedEntries() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let sourceData = try visiblePNGData(dimension: 128)
+        let allowedURLs = (1...3).map { URL(string: "https://example.com/storage/icons/allowed-\($0).png")! }
+        let nonAllowedURL = URL(string: "https://example.com/storage/icons/non-allowed.png")!
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, sourceData)
+        }
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            policy: iconCachePolicy(maximumDiskBytes: .max, maximumDiskFileCount: 3)
+        )
+        await cache.prune(keeping: Set(allowedURLs), sessionRevision: 0)
+        await cache.cache(data: sourceData, for: allowedURLs[0])
+        await cache.cache(data: sourceData, for: allowedURLs[1])
+        await cache.cache(data: sourceData, for: nonAllowedURL)
+
+        _ = await cache.imageData(for: allowedURLs[2])
+
+        let hasNonAllowed = await cache.hasCachedData(for: nonAllowedURL)
+        XCTAssertFalse(hasNonAllowed)
+        for url in allowedURLs {
+            let hasAllowed = await cache.hasCachedData(for: url)
+            XCTAssertTrue(hasAllowed)
+        }
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheCountsHiddenFilesDuringDiskTrimming() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let hiddenFile = directory.appendingPathComponent(".hidden-cache-entry")
+        try Data("hidden".utf8).write(to: hiddenFile)
+        let sourceData = try visiblePNGData(dimension: 128)
+        let url = URL(string: "https://example.com/storage/icons/visible.png")!
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, sourceData)
+        }
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            cacheDirectory: directory,
+            policy: iconCachePolicy(maximumDiskBytes: .max, maximumDiskFileCount: 1)
+        )
+
+        _ = await cache.imageData(for: url)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hiddenFile.path))
+        let hasVisible = await cache.hasCachedData(for: url)
+        XCTAssertTrue(hasVisible)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testAccountIconCacheContinuesDiskTrimmingAfterRemovalFailure() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let sourceData = try visiblePNGData(dimension: 128)
+        let urls = (1...3).map { URL(string: "https://example.com/storage/icons/failure-\($0).png")! }
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, sourceData)
+        }
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: sourceData, for: urls[0])
+        let oldestFile = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1)],
+            ofItemAtPath: oldestFile.path
+        )
+        await writer.cache(data: sourceData, for: urls[1])
+        for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            where file != oldestFile
+        {
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: 2)],
+                ofItemAtPath: file.path
+            )
+        }
+        let recorder = RemovalFailureRecorder()
+        let cache = AccountIconCache(
+            session: makeMockedURLSession(),
+            fileManager: FailingRemovalFileManager(failingURL: oldestFile, recorder: recorder),
+            cacheDirectory: directory,
+            policy: iconCachePolicy(maximumDiskBytes: .max, maximumDiskFileCount: 2)
+        )
+
+        _ = await cache.imageData(for: urls[2])
+
+        let remainingFiles = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(recorder.count, 1)
+        XCTAssertEqual(remainingFiles.count, 2)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oldestFile.path))
+        try? FileManager.default.removeItem(at: directory)
     }
 
     func testAccountIconCacheBoundsConcurrentDownloads() async throws {
@@ -1011,16 +1328,21 @@ final class AppModelStateMachineTests: XCTestCase {
         }
 
         await gate.waitUntilStarted(2)
-        try await Task.sleep(for: .milliseconds(100))
+        while await cache.resourceAdmissionState().queuedDownloads < 3 {
+            await Task.yield()
+        }
+        let admission = await cache.resourceAdmissionState()
         let peak = gate.peak
-        gate.resume(5)
+        gate.resumeCurrentAndNext(5)
         for load in loads { _ = await load.value }
 
         XCTAssertEqual(peak, 2)
+        XCTAssertEqual(admission.activeDownloads, 2)
+        XCTAssertEqual(admission.queuedDownloads, 3)
         try? FileManager.default.removeItem(at: directory)
     }
 
-    func testAccountIconCacheRemovesCancelledDownloadWaiter() async throws {
+    func testAccountIconCacheMaintainsDownloadOwnershipAcrossQueuedAndTransferredCancellation() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1032,23 +1354,50 @@ final class AppModelStateMachineTests: XCTestCase {
             policy: iconCachePolicy(maximumConcurrentDownloads: 1)
         )
         let first = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/first.png")!) }
-        await gate.waitUntilStarted(1)
-        let cancelled = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/cancelled.png")!) }
-        try await Task.sleep(for: .milliseconds(50))
-        cancelled.cancel()
-        let last = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/last.png")!) }
-        try await Task.sleep(for: .milliseconds(50))
-        gate.resume(3)
+        await gate.waitUntilStarted(value: "first.png")
+        let queuedCancellation = Task {
+            await cache.imageData(for: URL(string: "https://example.com/storage/icons/queued-cancel.png")!)
+        }
+        while await cache.resourceAdmissionState().queuedDownloads < 1 {
+            await Task.yield()
+        }
+        queuedCancellation.cancel()
+        while await cache.resourceAdmissionState().queuedDownloads != 0 {
+            await Task.yield()
+        }
+        let transferredCancellation = Task {
+            await cache.imageData(for: URL(string: "https://example.com/storage/icons/transferred-cancel.png")!)
+        }
+        while await cache.resourceAdmissionState().queuedDownloads < 1 {
+            await Task.yield()
+        }
+        gate.resume(value: "first.png")
+        await gate.waitUntilStarted(value: "transferred-cancel.png")
+        transferredCancellation.cancel()
+        while await cache.resourceAdmissionState().activeDownloads != 0 {
+            await Task.yield()
+        }
+        let newcomer = Task {
+            await cache.imageData(for: URL(string: "https://example.com/storage/icons/newcomer.png")!)
+        }
+        await gate.waitUntilStarted(value: "newcomer.png")
+        let newcomerAdmission = await cache.resourceAdmissionState()
+        gate.resume(value: "newcomer.png")
         _ = await first.value
-        let cancelledValue = await cancelled.value
-        _ = await last.value
+        let queuedValue = await queuedCancellation.value
+        let transferredValue = await transferredCancellation.value
+        _ = await newcomer.value
 
-        XCTAssertNil(cancelledValue)
-        XCTAssertEqual(gate.started, ["first.png", "last.png"])
+        XCTAssertNil(queuedValue)
+        XCTAssertNil(transferredValue)
+        XCTAssertFalse(gate.started.contains("queued-cancel.png"))
+        XCTAssertEqual(newcomerAdmission.activeDownloads, 1)
+        XCTAssertEqual(newcomerAdmission.queuedDownloads, 0)
+        XCTAssertEqual(gate.peak, 1)
         try? FileManager.default.removeItem(at: directory)
     }
 
-    func testAccountIconCacheBoundsConcurrentRasterizationsAndRemovesCancelledWaiter() async throws {
+    func testAccountIconCacheMaintainsRasterOwnershipAcrossQueuedAndTransferredCancellation() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1069,23 +1418,49 @@ final class AppModelStateMachineTests: XCTestCase {
             policy: iconCachePolicy(maximumConcurrentRasterizations: 1)
         )
         let first = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/first.svg")!) }
-        await gate.waitUntilStarted(1)
-        let cancelled = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/cancelled.svg")!) }
-        try await Task.sleep(for: .milliseconds(50))
-        cancelled.cancel()
-        let last = Task { await cache.imageData(for: URL(string: "https://example.com/storage/icons/last.svg")!) }
-        try await Task.sleep(for: .milliseconds(50))
-        let peak = await gate.peak
-        await gate.resume()
+        await gate.waitUntilStarted(value: "<svg id=\"first.svg\"></svg>")
+        let queuedCancellation = Task {
+            await cache.imageData(for: URL(string: "https://example.com/storage/icons/queued-cancel.svg")!)
+        }
+        while await cache.resourceAdmissionState().queuedRasterizations < 1 {
+            await Task.yield()
+        }
+        queuedCancellation.cancel()
+        while await cache.resourceAdmissionState().queuedRasterizations != 0 {
+            await Task.yield()
+        }
+        let transferredCancellation = Task {
+            await cache.imageData(for: URL(string: "https://example.com/storage/icons/transferred-cancel.svg")!)
+        }
+        while await cache.resourceAdmissionState().queuedRasterizations < 1 {
+            await Task.yield()
+        }
+        await gate.resume(value: "<svg id=\"first.svg\"></svg>")
+        await gate.waitUntilStarted(value: "<svg id=\"transferred-cancel.svg\"></svg>")
+        transferredCancellation.cancel()
+        await gate.resume(value: "<svg id=\"transferred-cancel.svg\"></svg>")
+        while await cache.resourceAdmissionState().activeRasterizations != 0 {
+            await Task.yield()
+        }
+        let newcomer = Task {
+            await cache.imageData(for: URL(string: "https://example.com/storage/icons/newcomer.svg")!)
+        }
+        await gate.waitUntilStarted(value: "<svg id=\"newcomer.svg\"></svg>")
+        let newcomerAdmission = await cache.resourceAdmissionState()
+        await gate.resume(value: "<svg id=\"newcomer.svg\"></svg>")
         _ = await first.value
-        let cancelledValue = await cancelled.value
-        _ = await last.value
+        let queuedValue = await queuedCancellation.value
+        let transferredValue = await transferredCancellation.value
+        _ = await newcomer.value
         let started = await gate.started
+        let peak = await gate.peak
 
         XCTAssertEqual(peak, 1)
-        XCTAssertNil(cancelledValue)
-        XCTAssertEqual(started.count, 2)
-        XCTAssertFalse(started.contains { $0.contains("cancelled.svg") })
+        XCTAssertNil(queuedValue)
+        XCTAssertNil(transferredValue)
+        XCTAssertFalse(started.contains { $0.contains("queued-cancel.svg") })
+        XCTAssertEqual(newcomerAdmission.activeRasterizations, 1)
+        XCTAssertEqual(newcomerAdmission.queuedRasterizations, 0)
         try? FileManager.default.removeItem(at: directory)
     }
 
