@@ -489,7 +489,8 @@ final class AppModelStateMachineTests: XCTestCase {
 
         private func consumeIconUpdates(
             _ updates: AsyncStream<Data>,
-            received: XCTestExpectation? = nil
+            received: XCTestExpectation? = nil,
+            completed: XCTestExpectation? = nil
         ) -> Task<[Data], Never> {
             Task {
                 var values: [Data] = []
@@ -501,6 +502,7 @@ final class AppModelStateMachineTests: XCTestCase {
                         received.fulfill()
                     }
                 }
+                completed?.fulfill()
                 return values
             }
         }
@@ -551,6 +553,30 @@ final class AppModelStateMachineTests: XCTestCase {
         await setup.appModel.bootstrap()
 
         XCTAssertEqual(setup.appModel.sessionState, .locked)
+    }
+
+    func testBootstrapAdmitsWarmAccountIconCacheAtPersistedSessionRevision() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: visiblePNGData(), for: url)
+        let cache = AccountIconCache(cacheDirectory: directory)
+        let setup = try makeSUT(testName: #function, iconCache: cache)
+        setup.configStore.baseURLString = "https://example.com"
+        setup.configStore.sessionRevision = 3
+        try secretStore.saveAPIKey("api-key")
+
+        await setup.appModel.bootstrap()
+        let data = await setup.appModel.iconData(
+            for: url,
+            allowRemoteLoad: false,
+            sessionRevision: 3
+        )
+
+        XCTAssertNotNil(data)
+        try? FileManager.default.removeItem(at: directory)
     }
 
     func testBootstrapWithReloginFlagStartsReloginRequired() async throws {
@@ -921,7 +947,11 @@ final class AppModelStateMachineTests: XCTestCase {
         await cache.advanceSession(to: 2)
         await cache.cache(data: visiblePNGData(), for: replacementURL)
 
-        let loaded = await cache.imageData(for: replacementURL, allowRemoteLoad: false)
+        let loaded = await cache.imageData(
+            for: replacementURL,
+            allowRemoteLoad: false,
+            sessionRevision: 2
+        )
         XCTAssertNotNil(loaded)
         try? FileManager.default.removeItem(at: directory)
     }
@@ -950,7 +980,11 @@ final class AppModelStateMachineTests: XCTestCase {
         await replacementAdmission.value
         await cache.cache(data: visiblePNGData(), for: replacementURL)
 
-        let loaded = await cache.imageData(for: replacementURL, allowRemoteLoad: false)
+        let loaded = await cache.imageData(
+            for: replacementURL,
+            allowRemoteLoad: false,
+            sessionRevision: 2
+        )
         XCTAssertNotNil(loaded)
         try? FileManager.default.removeItem(at: directory)
     }
@@ -1824,6 +1858,71 @@ final class AppModelStateMachineTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    func testStaleAccountIconDataCallerCannotReadDownloadOrWriteAfterSessionAdvance() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let diskURL = URL(string: "https://example.com/storage/icons/cached.png")!
+        let remoteURL = URL(string: "https://example.com/storage/icons/remote.png")!
+        let writer = AccountIconCache(cacheDirectory: directory)
+        await writer.cache(data: visiblePNGData(), for: diskURL)
+        let initialFiles = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        let gate = ConcurrentOperationGate()
+        let cache = AccountIconCache(
+            session: makeGatedIconURLSession(gate: gate, sourceData: visiblePNGData()),
+            cacheDirectory: directory
+        )
+        await cache.advanceSession(to: 1)
+
+        let diskData = await cache.imageData(
+            for: diskURL,
+            allowRemoteLoad: false,
+            sessionRevision: 0
+        )
+        let remoteData = await cache.imageData(
+            for: remoteURL,
+            allowRemoteLoad: true,
+            sessionRevision: 0
+        )
+
+        XCTAssertNil(diskData)
+        XCTAssertNil(remoteData)
+        XCTAssertTrue(gate.started.isEmpty)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil),
+            initialFiles
+        )
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testStaleAccountIconUpdatesCallerFinishesWithoutObserverOrLoadAfterSessionAdvance() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = URL(string: "https://example.com/storage/icons/github.png")!
+        let gate = ConcurrentOperationGate()
+        let cache = AccountIconCache(
+            session: makeGatedIconURLSession(gate: gate, sourceData: visiblePNGData()),
+            cacheDirectory: directory
+        )
+        await cache.advanceSession(to: 1)
+
+        let updates = await cache.imageUpdates(
+            for: url,
+            allowRemoteLoad: true,
+            sessionRevision: 0
+        )
+        let completed = expectation(description: "stale update stream completed")
+        let consumer = consumeIconUpdates(updates, completed: completed)
+        await fulfillment(of: [completed], timeout: 1)
+        let values = await consumer.value
+        await cache.cache(data: visiblePNGData(), for: url)
+
+        XCTAssertTrue(values.isEmpty)
+        XCTAssertTrue(gate.started.isEmpty)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     func testAccountIconCachePublishesStaleIconBeforeRefreshedIcon() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TwoFAuthTests.", isDirectory: true)
@@ -2035,10 +2134,12 @@ final class AppModelStateMachineTests: XCTestCase {
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
         let initialReceived = expectation(description: "initial icon")
-        let consumer = consumeIconUpdates(updates, received: initialReceived)
+        let completed = expectation(description: "observer completed after clear")
+        let consumer = consumeIconUpdates(updates, received: initialReceived, completed: completed)
         await fulfillment(of: [initialReceived], timeout: 1)
 
         await cache.clear(sessionRevision: 0)
+        await fulfillment(of: [completed], timeout: 1)
         let values = await consumer.value
 
         XCTAssertEqual(values.count, 1)
@@ -2055,10 +2156,12 @@ final class AppModelStateMachineTests: XCTestCase {
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
         let initialReceived = expectation(description: "initial icon")
-        let consumer = consumeIconUpdates(updates, received: initialReceived)
+        let completed = expectation(description: "observer completed after prune")
+        let consumer = consumeIconUpdates(updates, received: initialReceived, completed: completed)
         await fulfillment(of: [initialReceived], timeout: 1)
 
         await cache.prune(keeping: [], sessionRevision: 0)
+        await fulfillment(of: [completed], timeout: 1)
         let values = await consumer.value
 
         XCTAssertEqual(values.count, 1)
@@ -2075,10 +2178,12 @@ final class AppModelStateMachineTests: XCTestCase {
         let cache = AccountIconCache(cacheDirectory: directory)
         let updates = await cache.imageUpdates(for: url, allowRemoteLoad: false)
         let initialReceived = expectation(description: "initial icon")
-        let consumer = consumeIconUpdates(updates, received: initialReceived)
+        let completed = expectation(description: "observer completed after session advance")
+        let consumer = consumeIconUpdates(updates, received: initialReceived, completed: completed)
         await fulfillment(of: [initialReceived], timeout: 1)
 
         await cache.advanceSession(to: 1)
+        await fulfillment(of: [completed], timeout: 1)
         let values = await consumer.value
 
         XCTAssertEqual(values.count, 1)

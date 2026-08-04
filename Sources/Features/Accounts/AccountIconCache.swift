@@ -180,7 +180,14 @@ actor AccountIconCache {
         AccountIconURLResolver.iconURL(baseURL: baseURL, iconFilename: iconFilename)
     }
 
-    func imageData(for url: URL, allowRemoteLoad: Bool = true) async -> Data? {
+    func imageData(
+        for url: URL,
+        allowRemoteLoad: Bool = true,
+        sessionRevision: Int = 0
+    ) async -> Data? {
+        guard sessionRevision == self.sessionRevision else {
+            return nil
+        }
         if let entry = memoryEntry(for: url) {
             if allowRemoteLoad,
                 !isFresh(modificationDate: entry.modificationDate),
@@ -242,7 +249,16 @@ actor AccountIconCache {
         return await coalescedImageData(for: url, cachedURL: cachedURL, cachedData: nil)
     }
 
-    func imageUpdates(for url: URL, allowRemoteLoad: Bool = true) -> AsyncStream<Data> {
+    func imageUpdates(
+        for url: URL,
+        allowRemoteLoad: Bool = true,
+        sessionRevision: Int = 0
+    ) -> AsyncStream<Data> {
+        guard sessionRevision == self.sessionRevision else {
+            return AsyncStream { continuation in
+                continuation.finish()
+            }
+        }
         let observerID = UUID()
         let (stream, delivery) = AccountIconUpdateDelivery.make(allowsRemoteUpdates: allowRemoteLoad)
         delivery.continuation.onTermination = { [weak self] _ in
@@ -259,7 +275,11 @@ actor AccountIconCache {
                 continuation.finish()
                 return
             }
-            let data = await self.imageData(for: url, allowRemoteLoad: allowRemoteLoad)
+            let data = await self.imageData(
+                for: url,
+                allowRemoteLoad: allowRemoteLoad,
+                sessionRevision: sessionRevision
+            )
             await self.publishInitialImageData(data, to: observerID, for: url)
         }
         imageUpdateObservers[url]?[observerID]?.initialLoadTask = initialLoadTask

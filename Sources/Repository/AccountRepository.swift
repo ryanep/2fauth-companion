@@ -11,6 +11,7 @@ enum SyncResult {
 enum AccountRepositoryError: Error {
     case unsupportedOTPType
     case createdButNotCached
+    case staleSession
 }
 
 @MainActor
@@ -88,9 +89,13 @@ final class DefaultAccountRepository: AccountRepository {
         context: ModelContext,
         baseURL: URL,
         apiKey: String,
-        requestBody: AccountCreationRequest
+        requestBody: AccountCreationRequest,
+        isCurrentSession: @escaping () -> Bool
     ) async throws {
         let account = try await apiClient.createAccount(baseURL: baseURL, apiKey: apiKey, requestBody: requestBody)
+        guard isCurrentSession() else {
+            throw AccountRepositoryError.staleSession
+        }
         guard isSupportedOTPType(account.otpType) else {
             throw AccountRepositoryError.unsupportedOTPType
         }

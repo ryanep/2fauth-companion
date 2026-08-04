@@ -27,7 +27,7 @@ private actor AsyncGate {
 @MainActor
 private final class AddAccountTestRepository: AccountRepository {
     var syncHandler: () async -> SyncResult = { .success }
-    var previewHandler: () throws -> APIAccount = {
+    var previewHandler: () async throws -> APIAccount = {
         fatalError("Unexpected preview")
     }
     var createHandler: () async throws -> Void = {}
@@ -52,16 +52,20 @@ private final class AddAccountTestRepository: AccountRepository {
     }
 
     func previewAccount(baseURL: URL, apiKey: String, uri: String, customOTP: String?) async throws -> APIAccount {
-        try previewHandler()
+        try await previewHandler()
     }
 
     func createAccount(
         context: ModelContext,
         baseURL: URL,
         apiKey: String,
-        requestBody: AccountCreationRequest
+        requestBody: AccountCreationRequest,
+        isCurrentSession: @escaping () -> Bool
     ) async throws {
         try await createHandler()
+        guard isCurrentSession() else {
+            throw AccountRepositoryError.staleSession
+        }
         if let createdAccount {
             context.insert(createdAccount)
             try context.save()
@@ -80,6 +84,7 @@ final class AppModelAddAccountTests: XCTestCase {
         let repository: AddAccountTestRepository
         let configStore: UserDefaultsAppConfigStore
         let secretStore: KeychainSecretStore
+        let modelContext: ModelContext
     }
 
     override func tearDown() {
@@ -183,6 +188,114 @@ final class AppModelAddAccountTests: XCTestCase {
         XCTAssertEqual(setup.repository.wipeCallCount, 0)
     }
 
+    func testStalePreviewSuccessDoesNotReturnAfterReplacementSession() async throws {
+        let setup = try makeSUT(testName: #function)
+        let started = AsyncGate()
+        let release = AsyncGate()
+        setup.repository.previewHandler = {
+            await started.open()
+            await release.wait()
+            return try self.apiAccount(
+                secret: "JBSWY3DPEHPK3PXP",
+                digits: 6,
+                algorithm: "SHA1",
+                period: 30
+            )
+        }
+
+        let preview = Task { try await setup.appModel.previewAccount(uri: validURI) }
+        await started.wait()
+        try replaceSession(in: setup)
+        await release.open()
+
+        do {
+            _ = try await preview.value
+            XCTFail("Expected stale preview cancellation")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+        XCTAssertEqual(setup.secretStore.loadAPIKey(), "replacement-key")
+        XCTAssertEqual(setup.repository.wipeCallCount, 0)
+    }
+
+    func testStaleCreateSuccessDoesNotPersistAfterReplacementSession() async throws {
+        let setup = try makeSUT(testName: #function)
+        let started = AsyncGate()
+        let release = AsyncGate()
+        setup.repository.createdAccount = AccountEntity(
+            remoteID: 10,
+            service: "Old session",
+            account: "old@example.com",
+            otpType: "totp",
+            digits: 6,
+            algorithm: "SHA1",
+            period: 30,
+            encryptedSecret: nil,
+            updatedAt: Date()
+        )
+        setup.repository.createHandler = {
+            await started.open()
+            await release.wait()
+        }
+
+        let creation = Task {
+            try await setup.appModel.addAccount(
+                preview: validPreview(),
+                service: "Example",
+                account: "person@example.com"
+            )
+        }
+        await started.wait()
+        try replaceSession(in: setup)
+        await release.open()
+
+        do {
+            try await creation.value
+            XCTFail("Expected stale creation cancellation")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+        let accounts = try setup.modelContext.fetch(FetchDescriptor<AccountEntity>())
+        XCTAssertTrue(accounts.isEmpty)
+        XCTAssertEqual(setup.repository.syncCallCount, 0)
+    }
+
+    func testStaleCreateUnauthorizedDoesNotWipeReplacementSession() async throws {
+        let setup = try makeSUT(testName: #function)
+        setup.appModel.sessionState = .unlocked
+        let started = AsyncGate()
+        let release = AsyncGate()
+        setup.repository.createHandler = {
+            await started.open()
+            await release.wait()
+            throw APIError.unauthorized
+        }
+
+        let creation = Task {
+            try await setup.appModel.addAccount(
+                preview: validPreview(),
+                service: "Example",
+                account: "person@example.com"
+            )
+        }
+        await started.wait()
+        try replaceSession(in: setup)
+        await release.open()
+
+        do {
+            try await creation.value
+            XCTFail("Expected stale creation cancellation")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+        XCTAssertEqual(setup.appModel.sessionState, .unlocked)
+        XCTAssertEqual(setup.secretStore.loadAPIKey(), "replacement-key")
+        XCTAssertEqual(setup.repository.wipeCallCount, 0)
+    }
+
     func testPreviewRejectsMissingSecretFromServer() async throws {
         let setup = try makeSUT(testName: #function)
         setup.repository.previewHandler = {
@@ -274,7 +387,10 @@ final class AppModelAddAccountTests: XCTestCase {
             service: "Example",
             account: "person@example.com"
         )
-        let loadedData = await setup.appModel.iconData(for: iconURL)
+        let loadedData = await setup.appModel.iconData(
+            for: iconURL,
+            sessionRevision: setup.configStore.sessionRevision
+        )
 
         let image = try XCTUnwrap(UIImage(data: try XCTUnwrap(loadedData)))
         XCTAssertEqual(image.size, CGSize(width: 128, height: 128))
@@ -328,6 +444,12 @@ final class AppModelAddAccountTests: XCTestCase {
         return try JSONDecoder().decode(APIAccount.self, from: Data(json.utf8))
     }
 
+    private func replaceSession(in setup: SUT) throws {
+        setup.configStore.sessionRevision += 1
+        try setup.secretStore.saveAPIKey("replacement-key")
+        setup.appModel.sessionState = .unlocked
+    }
+
     private func makeSUT(testName: String, iconCache: AccountIconCache = .shared) throws -> SUT {
         let container = try makeInMemoryModelContainer()
         let configStore = makeTestConfigStore(testName: testName)
@@ -335,8 +457,9 @@ final class AppModelAddAccountTests: XCTestCase {
         let secretStore = KeychainSecretStore()
         try secretStore.saveAPIKey("api-key")
         let repository = AddAccountTestRepository()
+        let modelContext = ModelContext(container)
         let appModel = AppModel(
-            modelContext: ModelContext(container),
+            modelContext: modelContext,
             configStore: configStore,
             secretStore: secretStore,
             repository: repository,
@@ -345,7 +468,13 @@ final class AppModelAddAccountTests: XCTestCase {
             clearWatchSnapshot: {},
             iconCache: iconCache
         )
-        return SUT(appModel: appModel, repository: repository, configStore: configStore, secretStore: secretStore)
+        return SUT(
+            appModel: appModel,
+            repository: repository,
+            configStore: configStore,
+            secretStore: secretStore,
+            modelContext: modelContext
+        )
     }
 
     private func waitUntil(

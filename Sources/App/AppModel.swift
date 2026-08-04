@@ -64,6 +64,12 @@ enum AddAccountError: Error, Equatable, LocalizedError {
 
 @MainActor
 final class AppModel: ObservableObject {
+    private struct SessionIdentity {
+        let revision: Int
+        let baseURL: URL
+        let apiKey: String
+    }
+
     @Published var sessionState: SessionState = .loggedOut
     @Published var baseURLInput: String = ""
     @Published var loginError: String?
@@ -122,6 +128,8 @@ final class AppModel: ObservableObject {
     }
 
     func bootstrap() async {
+        await iconCache.advanceSession(to: configStore.sessionRevision)
+
         #if DEBUG
             if ProcessInfo.processInfo.environment["UI_TEST_FORCE_LOGGED_OUT"] == "1" {
                 unlockedState = .unlocked
@@ -260,6 +268,10 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func syncNow() async -> SyncResult? {
+        await syncNow(expectedSession: nil)
+    }
+
+    private func syncNow(expectedSession: SessionIdentity?) async -> SyncResult? {
         await acquireForegroundSync()
         defer { releaseForegroundSync() }
 
@@ -274,6 +286,16 @@ final class AppModel: ObservableObject {
                 await iconCache.advanceSession(to: sessionRevision)
             }
             return nil
+        }
+
+        if let expectedSession,
+            !isCurrentSession(
+                revision: expectedSession.revision,
+                baseURL: expectedSession.baseURL,
+                apiKey: expectedSession.apiKey
+            )
+        {
+            return .stale
         }
 
         let sessionRevision = configStore.sessionRevision
@@ -524,6 +546,7 @@ extension AppModel {
         guard let baseURL = configuredBaseURL(), let apiKey = secretStore.loadAPIKey() else {
             throw AddAccountError.authenticationRequired
         }
+        let sessionRevision = configStore.sessionRevision
 
         do {
             let customOTP = OTPAuthURIValidator.isSteamAccount(uri) ? "steamtotp" : nil
@@ -533,6 +556,9 @@ extension AppModel {
                 uri: uri,
                 customOTP: customOTP
             )
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                throw CancellationError()
+            }
             guard
                 let secret = account.secret,
                 !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -555,6 +581,9 @@ extension AppModel {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                throw CancellationError()
+            }
             throw await addAccountError(from: error)
         }
     }
@@ -564,6 +593,7 @@ extension AppModel {
             throw AddAccountError.authenticationRequired
         }
         let sessionRevision = configStore.sessionRevision
+        let sessionIdentity = SessionIdentity(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey)
 
         let accountName = account.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !accountName.isEmpty, !preview.secret.isEmpty else {
@@ -587,17 +617,31 @@ extension AppModel {
                 context: modelContext,
                 baseURL: baseURL,
                 apiKey: apiKey,
-                requestBody: requestBody
+                requestBody: requestBody,
+                isCurrentSession: { [weak self] in
+                    self?.isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) == true
+                }
             )
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                throw AccountRepositoryError.staleSession
+            }
             await pruneIconCache(baseURL: baseURL, sessionRevision: sessionRevision)
-            _ = await refreshAfterAccountCreation()
+            _ = await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
+        } catch AccountRepositoryError.staleSession {
+            throw CancellationError()
         } catch AccountRepositoryError.createdButNotCached {
-            if await refreshAfterAccountCreation() {
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                throw CancellationError()
+            }
+            if await refreshAfterAccountCreation(sessionIdentity: sessionIdentity) {
                 return
             }
             throw AddAccountError.createdButNotCached
         } catch {
-            throw await createAccountError(from: error)
+            guard isCurrentSession(revision: sessionRevision, baseURL: baseURL, apiKey: apiKey) else {
+                throw CancellationError()
+            }
+            throw await createAccountError(from: error, sessionIdentity: sessionIdentity)
         }
     }
 
@@ -628,8 +672,13 @@ extension AppModel {
 }
 
 extension AppModel {
-    fileprivate func refreshAfterAccountCreation() async -> Bool {
-        guard let result = await syncNow() else {
+    private func refreshAfterAccountCreation(sessionIdentity: SessionIdentity) async -> Bool {
+        guard isCurrentSession(
+            revision: sessionIdentity.revision,
+            baseURL: sessionIdentity.baseURL,
+            apiKey: sessionIdentity.apiKey
+        ), let result = await syncNow(expectedSession: sessionIdentity)
+        else {
             return false
         }
 
@@ -678,19 +727,22 @@ extension AppModel {
         }
     }
 
-    fileprivate func createAccountError(from error: any Error) async -> AddAccountError {
+    private func createAccountError(
+        from error: any Error,
+        sessionIdentity: SessionIdentity
+    ) async -> AddAccountError {
         if error is CancellationError {
-            _ = await refreshAfterAccountCreationWithoutInheritedCancellation()
+            _ = await refreshAfterAccountCreationWithoutInheritedCancellation(sessionIdentity: sessionIdentity)
             ErrorReporter.report("add_account.creation_outcome_unknown")
             return .creationOutcomeUnknown
         }
 
         switch error {
         case AccountRepositoryError.unsupportedOTPType:
-            _ = await refreshAfterAccountCreation()
+            _ = await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
             return .createdButNotCached
         case APIError.transport, APIError.decoding, APIError.server:
-            _ = await refreshAfterAccountCreation()
+            _ = await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
             ErrorReporter.report("add_account.creation_outcome_unknown")
             return .creationOutcomeUnknown
         default:
@@ -698,10 +750,12 @@ extension AppModel {
         }
     }
 
-    private func refreshAfterAccountCreationWithoutInheritedCancellation() async -> Bool {
+    private func refreshAfterAccountCreationWithoutInheritedCancellation(
+        sessionIdentity: SessionIdentity
+    ) async -> Bool {
         await Task { @MainActor [weak self] in
             guard let self else { return false }
-            return await refreshAfterAccountCreation()
+            return await refreshAfterAccountCreation(sessionIdentity: sessionIdentity)
         }.value
     }
 }
@@ -757,12 +811,24 @@ extension AppModel {
         return AccountIconCache.iconURL(baseURL: baseURL, iconFilename: filename)
     }
 
-    func iconData(for url: URL, allowRemoteLoad: Bool = true) async -> Data? {
-        await iconCache.imageData(for: url, allowRemoteLoad: allowRemoteLoad)
+    func iconData(for url: URL, allowRemoteLoad: Bool = true, sessionRevision: Int) async -> Data? {
+        await iconCache.imageData(
+            for: url,
+            allowRemoteLoad: allowRemoteLoad,
+            sessionRevision: sessionRevision
+        )
     }
 
-    func iconDataUpdates(for url: URL, allowRemoteLoad: Bool = true) async -> AsyncStream<Data> {
-        await iconCache.imageUpdates(for: url, allowRemoteLoad: allowRemoteLoad)
+    func iconDataUpdates(
+        for url: URL,
+        allowRemoteLoad: Bool = true,
+        sessionRevision: Int
+    ) async -> AsyncStream<Data> {
+        await iconCache.imageUpdates(
+            for: url,
+            allowRemoteLoad: allowRemoteLoad,
+            sessionRevision: sessionRevision
+        )
     }
 
     func iconLoadIdentity(for filename: String?) -> AccountIconLoadIdentity {

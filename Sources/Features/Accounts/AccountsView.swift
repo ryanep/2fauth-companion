@@ -475,7 +475,8 @@ private struct AccountIconView: View {
             }
             let updates = await appModel.iconDataUpdates(
                 for: url,
-                allowRemoteLoad: scenePhase == .active
+                allowRemoteLoad: scenePhase == .active,
+                sessionRevision: requestedIdentity.sessionRevision
             )
 
             for await data in updates {

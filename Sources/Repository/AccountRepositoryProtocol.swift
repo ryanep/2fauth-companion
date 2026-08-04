@@ -17,7 +17,8 @@ protocol AccountRepository {
         context: ModelContext,
         baseURL: URL,
         apiKey: String,
-        requestBody: AccountCreationRequest
+        requestBody: AccountCreationRequest,
+        isCurrentSession: @escaping () -> Bool
     ) async throws
     func wipeCachedData(context: ModelContext) throws
 }

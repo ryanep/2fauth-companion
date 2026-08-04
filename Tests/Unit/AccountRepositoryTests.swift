@@ -324,7 +324,8 @@ final class AccountRepositoryTests: XCTestCase {
                 digits: 6,
                 algorithm: "SHA1",
                 period: 30
-            )
+            ),
+            isCurrentSession: { true }
         )
 
         let stored = try XCTUnwrap(context.fetch(FetchDescriptor<AccountEntity>()).first)
@@ -332,6 +333,53 @@ final class AccountRepositoryTests: XCTestCase {
         XCTAssertNotEqual(encryptedSecret, Data("JBSWY3DPEHPK3PXP".utf8))
         XCTAssertEqual(try sut.decryptSecret(encryptedSecret), "JBSWY3DPEHPK3PXP")
         XCTAssertEqual(stored.iconFilename, "example.svg")
+    }
+
+    func testCreateAccountDoesNotMutateAfterSessionInvalidation() async throws {
+        let gate = RepositoryRequestGate()
+        MockURLProtocol.requestHandler = { request in
+            gate.suspendResponse()
+            let json = """
+                {"id":42,"service":"Old","account":"old@example.com","icon":"old.svg","otp_type":"totp","secret":"JBSWY3DPEHPK3PXP","digits":6,"algorithm":"SHA1","period":30}
+                """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 201, httpVersion: nil, headerFields: nil)!
+            return (response, Data(json.utf8))
+        }
+        let container = try makeInMemoryModelContainer()
+        let context = ModelContext(container)
+        let sut = makeRepository()
+        var isCurrentSession = true
+
+        let creation = Task {
+            try await sut.createAccount(
+                context: context,
+                baseURL: URL(string: "https://example.com")!,
+                apiKey: "key",
+                requestBody: AccountCreationRequest(
+                    service: "Old",
+                    account: "old@example.com",
+                    icon: nil,
+                    otpType: "totp",
+                    secret: "JBSWY3DPEHPK3PXP",
+                    digits: 6,
+                    algorithm: "SHA1",
+                    period: 30
+                ),
+                isCurrentSession: { isCurrentSession }
+            )
+        }
+        await gate.waitUntilSuspended()
+        isCurrentSession = false
+        gate.resumeResponse()
+
+        do {
+            try await creation.value
+            XCTFail("Expected stale session")
+        } catch AccountRepositoryError.staleSession {
+        } catch {
+            XCTFail("Expected stale session, got \(error)")
+        }
+        XCTAssertTrue(try context.fetch(FetchDescriptor<AccountEntity>()).isEmpty)
     }
 
     private func makeRepository() -> DefaultAccountRepository {
