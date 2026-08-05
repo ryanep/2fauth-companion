@@ -77,6 +77,7 @@ final class AppModel: ObservableObject {
     @Published var isSyncing: Bool = false
     @Published var autoLockTimeoutSeconds: Int
     @Published var lastSuccessfulSyncAt: Date?
+    @Published var showsAccountIcons: Bool
     @Published var currentTime: Date = .init()
 
     private var timerCancellable: AnyCancellable?
@@ -125,6 +126,7 @@ final class AppModel: ObservableObject {
         self.baseURLInput = configStore.baseURLString ?? ""
         self.autoLockTimeoutSeconds = configStore.autoLockTimeoutSeconds
         self.lastSuccessfulSyncAt = configStore.lastSuccessfulSyncAt
+        self.showsAccountIcons = configStore.showsAccountIcons
     }
 
     func bootstrap() async {
@@ -367,6 +369,11 @@ final class AppModel: ObservableObject {
         let normalized = UserDefaultsAppConfigStore.normalizeAutoLockTimeout(seconds)
         autoLockTimeoutSeconds = normalized
         configStore.autoLockTimeoutSeconds = normalized
+    }
+
+    func updateShowsAccountIcons(_ showsAccountIcons: Bool) {
+        self.showsAccountIcons = showsAccountIcons
+        configStore.showsAccountIcons = showsAccountIcons
     }
 
     func handleScenePhaseChange(_ phase: ScenePhase) {

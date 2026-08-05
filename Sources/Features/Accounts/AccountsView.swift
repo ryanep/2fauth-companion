@@ -215,8 +215,8 @@ private struct AccountItemView: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            AccountIconView(account: account)
+        HStack(spacing: appModel.showsAccountIcons ? 10 : 0) {
+            AccountIconView(account: account, isVisible: appModel.showsAccountIcons)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.service ?? String(localized: "accounts.unknown_service"))
@@ -407,6 +407,7 @@ private struct AccountIconView: View {
     @EnvironmentObject private var appModel: AppModel
     @Environment(\.scenePhase) private var scenePhase
     let account: AccountEntity
+    let isVisible: Bool
 
     #if canImport(UIKit)
         @State private var image: UIImage?
@@ -432,7 +433,9 @@ private struct AccountIconView: View {
                 fallbackIcon
             #endif
         }
-        .frame(width: 42, height: 42)
+        .frame(width: isVisible ? 42 : 0, height: 42)
+        .clipped()
+        .opacity(isVisible ? 1 : 0)
         .fixedSize()
         .accessibilityHidden(true)
         #if canImport(UIKit)
