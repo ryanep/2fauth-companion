@@ -292,6 +292,7 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertTrue(lastSync.waitForExistence(timeout: 5))
         XCTAssertFalse(lastSync.label.isEmpty)
 
+        XCTAssertTrue(element(in: app, identifier: "settings.show_account_icons").waitForExistence(timeout: 5))
         XCTAssertTrue(element(in: app, identifier: "settings.auto_lock").waitForExistence(timeout: 5))
 
         let issueLink = element(in: app, identifier: "settings.support.issue")
@@ -301,6 +302,67 @@ final class TwoFAuthUITests: XCTestCase {
         let emailLink = element(in: app, identifier: "settings.support.email")
         XCTAssertTrue(scrollUntilExists(emailLink, in: app))
         XCTAssertEqual(emailLink.label, "Send an issue or feedback via email")
+    }
+
+    func testLiveBackendHidesAccountIconsAndCollapsesTheirLayout() {
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_FORCE_LOGGED_OUT"] = "1"
+        app.launchEnvironment["UI_TEST_BASE_URL"] = liveConfig.baseURL
+        app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
+        app.launch()
+
+        login(app: app, timeout: 20)
+
+        let serviceLabel = app.staticTexts["Amazon"]
+        XCTAssertTrue(serviceLabel.waitForExistence(timeout: 5))
+        let visibleIconLabelMinX = serviceLabel.frame.minX
+
+        let settingsTab = element(in: app, identifier: "tab.settings")
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 5))
+        settingsTab.tap()
+
+        let iconVisibilitySwitch = element(in: app, identifier: "settings.show_account_icons")
+        XCTAssertTrue(iconVisibilitySwitch.waitForExistence(timeout: 5))
+        XCTAssertEqual(iconVisibilitySwitch.value as? String, "1")
+        addTeardownBlock { @MainActor [self] in
+            let settingsScreen = element(in: app, identifier: "settings.screen")
+            if !settingsScreen.exists {
+                XCTAssertTrue(settingsTab.waitForExistence(timeout: 5))
+                settingsTab.tap()
+                XCTAssertTrue(settingsScreen.waitForExistence(timeout: 5))
+            }
+
+            XCTAssertTrue(iconVisibilitySwitch.waitForExistence(timeout: 5))
+            if iconVisibilitySwitch.value as? String == "0" {
+                iconVisibilitySwitch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+                XCTAssertTrue(waitUntil(timeout: 5) {
+                    iconVisibilitySwitch.value as? String == "1"
+                })
+            }
+            XCTAssertEqual(iconVisibilitySwitch.value as? String, "1")
+        }
+        iconVisibilitySwitch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            iconVisibilitySwitch.value as? String == "0"
+        })
+
+        let accountsTab = element(in: app, identifier: "tab.accounts")
+        XCTAssertTrue(accountsTab.waitForExistence(timeout: 5))
+        accountsTab.tap()
+
+        XCTAssertTrue(serviceLabel.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            serviceLabel.frame.minX <= visibleIconLabelMinX - 52
+        })
+
+        settingsTab.tap()
+        XCTAssertTrue(iconVisibilitySwitch.waitForExistence(timeout: 5))
+        XCTAssertEqual(iconVisibilitySwitch.value as? String, "0")
+        iconVisibilitySwitch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            iconVisibilitySwitch.value as? String == "1"
+        })
+        XCTAssertEqual(iconVisibilitySwitch.value as? String, "1")
     }
 
     func testSettingsScreenShowsNativeFormControlsOnIPad() throws {
@@ -322,6 +384,7 @@ final class TwoFAuthUITests: XCTestCase {
         XCTAssertTrue(element(in: app, identifier: "settings.app_version").waitForExistence(timeout: 5))
         XCTAssertTrue(element(in: app, identifier: "settings.server_url").waitForExistence(timeout: 5))
         XCTAssertTrue(element(in: app, identifier: "settings.last_sync").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(in: app, identifier: "settings.show_account_icons").waitForExistence(timeout: 5))
         XCTAssertTrue(element(in: app, identifier: "settings.auto_lock").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["settings.logout"].waitForExistence(timeout: 5))
     }

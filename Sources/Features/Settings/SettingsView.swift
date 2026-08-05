@@ -23,6 +23,13 @@ struct SettingsView: View {
         )
     }
 
+    private var iconVisibilityBinding: Binding<Bool> {
+        Binding(
+            get: { appModel.showsAccountIcons },
+            set: { appModel.updateShowsAccountIcons($0) }
+        )
+    }
+
     private func autoLockLabel(for seconds: Int) -> String {
         switch seconds {
         case 0:
@@ -67,6 +74,13 @@ struct SettingsView: View {
             Section("settings.section.sync") {
                 settingsRow(label: String(localized: "settings.server_url.label"), value: serverURLText, identifier: "settings.server_url")
                 settingsRow(label: String(localized: "settings.last_sync.label"), value: lastSuccessfulSyncText, identifier: "settings.last_sync")
+            }
+
+            Section("settings.section.appearance") {
+                Toggle(isOn: iconVisibilityBinding) {
+                    Text("settings.show_account_icons.label")
+                }
+                    .accessibilityIdentifier("settings.show_account_icons")
             }
 
             Section("settings.section.support") {

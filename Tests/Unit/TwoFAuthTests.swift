@@ -210,6 +210,17 @@ final class TwoFAuthTests: XCTestCase {
         XCTAssertEqual(store.autoLockTimeoutSeconds, UserDefaultsAppConfigStore.defaultAutoLockTimeoutSeconds)
     }
 
+    func testShowAccountIconsDefaultsToEnabled() {
+        let store = makeConfigStore(testName: #function)
+        XCTAssertTrue(store.showsAccountIcons)
+    }
+
+    func testShowAccountIconsPersistsDisabledValue() {
+        let store = makeConfigStore(testName: #function)
+        store.showsAccountIcons = false
+        XCTAssertFalse(makeConfigStore(testName: #function, reset: false).showsAccountIcons)
+    }
+
     func testPendingWatchClearPersistsAcrossStoreInstances() {
         let store = makeConfigStore(testName: #function)
 

@@ -77,6 +77,8 @@
 "settings.logout.alert.message" = "You will need your API key to sign back in.";
 "settings.last_sync.never" = "Never";
 "settings.server_url.not_set" = "Not set";
+"settings.section.appearance" = "Appearance";
+"settings.show_account_icons.label" = "Show Account Icons";
 "settings.section.about" = "About";
 "settings.app_version.label" = "App Version";
 "settings.app_version.unknown" = "Unknown";

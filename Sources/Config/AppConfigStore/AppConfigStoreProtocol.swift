@@ -52,4 +52,5 @@ protocol AppConfigStore {
     var lastSuccessfulSyncAt: Date? { get set }
     var transportPolicy: TransportPolicy { get set }
     var sessionRevision: Int { get set }
+    var showsAccountIcons: Bool { get set }
 }

@@ -545,6 +545,18 @@ final class AppModelStateMachineTests: XCTestCase {
         XCTAssertEqual(setup.appModel.sessionState, .loggedOut)
     }
 
+    func testShowAccountIconsLoadsAndPersistsPreference() throws {
+        let configStore = makeTestConfigStore(testName: #function)
+        configStore.showsAccountIcons = false
+        let setup = try makeSUT(testName: #function, configStore: configStore)
+        XCTAssertFalse(setup.appModel.showsAccountIcons)
+
+        setup.appModel.updateShowsAccountIcons(true)
+
+        XCTAssertTrue(setup.appModel.showsAccountIcons)
+        XCTAssertTrue(configStore.showsAccountIcons)
+    }
+
     func testBootstrapWithSessionConfigurationStartsLocked() async throws {
         let setup = try makeSUT(testName: #function)
         setup.configStore.baseURLString = "https://example.com"
