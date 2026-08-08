@@ -14,11 +14,9 @@ permissions:
 
 jobs:
   release:
-    name: Build, Upload, Release
-    runs-on: macos-15
+    name: Build, Export, Upload, Release
+    runs-on: macos-26
     timeout-minutes: 90
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
 
     steps:
       - name: Checkout
@@ -73,46 +71,64 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/release.keychain" >/dev/null 2>&1 || true
           security list-keychains -d user -s "$RUNNER_TEMP/release.keychain"
 
-      - name: Install provisioning profile
+      - name: Install provisioning profiles
         if: env.NEW_VERSION != ''
         env:
           PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
+          PROVISIONING_PROFILE_WATCH: ${{ secrets.PROVISIONING_PROFILE_WATCH }}
         run: |
           set -euo pipefail
 
-          if [ -z "$PROVISIONING_PROFILE" ]; then
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+
+          install_profile() {
+            local PLATFORM="$1"
+            local PROFILE_BASE64="$2"
+
+            local PROFILE_PATH="$RUNNER_TEMP/${PLATFORM}.mobileprovision"
+            local PROFILE_PLIST="$RUNNER_TEMP/${PLATFORM}-profile.plist"
+
+            echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+            if [ ! -s "$PROFILE_PATH" ]; then
+              echo "::error::Decoded ${PLATFORM} provisioning profile is empty"
+              exit 1
+            fi
+
+            echo "${PLATFORM} provisioning profile decoded ($(wc -c < "$PROFILE_PATH") bytes)"
+
+            security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+
+            if [ ! -s "$PROFILE_PLIST" ]; then
+              echo "::error::security cms failed to decode ${PLATFORM} provisioning profile"
+              exit 1
+            fi
+
+            local PROFILE_UUID
+            local PROFILE_NAME
+            PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$PROFILE_PLIST")
+            PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$PROFILE_PLIST")
+
+            echo "${PLATFORM} profile UUID: $PROFILE_UUID"
+            echo "${PLATFORM} profile Name: $PROFILE_NAME"
+
+            cp "$PROFILE_PATH" "$PROFILES_DIR/$PROFILE_UUID.mobileprovision"
+
+            echo "PROFILE_NAME_${PLATFORM}=$PROFILE_NAME" >> "$GITHUB_ENV"
+          }
+
+          if [ -z "${PROVISIONING_PROFILE:-}" ]; then
             echo "::error::PROVISIONING_PROFILE secret is empty or unavailable"
             exit 1
           fi
-
-          PROFILE_PATH="$RUNNER_TEMP/release.mobileprovision"
-          PROFILE_PLIST="$RUNNER_TEMP/release-profile.plist"
-
-          echo "$PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH"
-
-          if [ ! -s "$PROFILE_PATH" ]; then
-            echo "::error::Decoded provisioning profile is empty"
+          if [ -z "${PROVISIONING_PROFILE_WATCH:-}" ]; then
+            echo "::error::PROVISIONING_PROFILE_WATCH secret is empty or unavailable"
             exit 1
           fi
 
-          echo "Provisioning profile decoded successfully ($(wc -c < "$PROFILE_PATH") bytes)"
-
-          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
-
-          if [ ! -s "$PROFILE_PLIST" ]; then
-            echo "::error::security cms failed to decode provisioning profile"
-            exit 1
-          fi
-
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$PROFILE_PLIST")
-
-          echo "Provisioning profile UUID: $PROFILE_UUID"
-
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-
-          cp "$PROFILE_PATH" \
-            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          install_profile "IOS" "$PROVISIONING_PROFILE"
+          install_profile "WATCH" "$PROVISIONING_PROFILE_WATCH"
 
       - name: Dry run — skip publish
         if: env.NEW_VERSION != '' && inputs.dry_run == true
@@ -128,22 +144,111 @@ jobs:
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           echo "$APP_STORE_CONNECT_API_KEY" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
 
+      - name: Generate CI xcconfig
+        if: env.NEW_VERSION != ''
+        run: |
+          cat > "$RUNNER_TEMP/ci-release.xcconfig" <<XCEOF
+          CODE_SIGN_STYLE = Manual
+          DEVELOPMENT_TEAM = 64C39764NA
+          CODE_SIGN_IDENTITY = Apple Distribution
+
+          PROVISIONING_PROFILE_SPECIFIER = ${PROFILE_NAME_IOS}
+          PROVISIONING_PROFILE_SPECIFIER[sdk=watchos*] = ${PROFILE_NAME_WATCH}
+          XCEOF
+
+          echo "Generated ci-release.xcconfig:"
+          cat "$RUNNER_TEMP/ci-release.xcconfig"
+
+      - name: Xcode version
+        if: env.NEW_VERSION != ''
+        run: |
+          xcodebuild -version
+          echo "DEVELOPER_DIR: ${DEVELOPER_DIR:-<not set>}"
+          echo "SDK platforms:"
+          xcodebuild -showsdks 2>/dev/null | head -20 || true
+
       - name: Build archive
         if: env.NEW_VERSION != ''
         run: |
+          set +e
           set -o pipefail
+
           xcodebuild archive \
             -project "2FAuth.xcodeproj" \
             -scheme "2FAuth" \
             -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath "$RUNNER_TEMP/2FAuth.xcarchive" \
+            -xcconfig "$RUNNER_TEMP/ci-release.xcconfig" \
             MARKETING_VERSION="$NEW_VERSION" \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM=64C39764NA \
-            PROVISIONING_PROFILE="$PROFILE_UUID" \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             | tee "$RUNNER_TEMP/xcodebuild-archive.log"
+
+          STATUS=$?
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::group::Signing/build errors"
+            grep -Ei \
+              'error:|provisioning profile|codesign|signing certificate|requires a provisioning profile|doesn.t match' \
+              "$RUNNER_TEMP/xcodebuild-archive.log" || true
+            echo "::endgroup::"
+            exit "$STATUS"
+          fi
+
+      - name: Generate ExportOptions.plist
+        if: env.NEW_VERSION != ''
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store-connect</string>
+
+              <key>teamID</key>
+              <string>64C39764NA</string>
+
+              <key>signingStyle</key>
+              <string>manual</string>
+
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>com.ryanep.2fauth</key>
+                  <string>${PROFILE_NAME_IOS}</string>
+
+                  <key>com.ryanep.2fauth.watchos</key>
+                  <string>${PROFILE_NAME_WATCH}</string>
+              </dict>
+          </dict>
+          </plist>
+          EOF
+
+          echo "Generated ExportOptions.plist:"
+          /usr/libexec/PlistBuddy -c Print "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Export IPA
+        if: env.NEW_VERSION != ''
+        run: |
+          set +e
+          set -o pipefail
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/2FAuth.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            | tee "$RUNNER_TEMP/xcodebuild-export.log"
+
+          STATUS=$?
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::group::Export errors"
+            grep -Ei \
+              'error:|provisioning profile|codesign|signing certificate|requires a provisioning profile|doesn.t match' \
+              "$RUNNER_TEMP/xcodebuild-export.log" || true
+            echo "::endgroup::"
+            exit "$STATUS"
+          fi
 
       - name: Upload to App Store Connect
         if: env.NEW_VERSION != '' && inputs.dry_run == false
@@ -151,9 +256,19 @@ jobs:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
+          IPA_PATH="$(find "$RUNNER_TEMP/export" -type f -name '*.ipa' -print -quit)"
+
+          if [ -z "$IPA_PATH" ]; then
+            echo "::error::No IPA produced by exportArchive"
+            find "$RUNNER_TEMP/export" -maxdepth 3 -type f -print || true
+            exit 1
+          fi
+
+          echo "Uploading: $IPA_PATH"
+
           set -o pipefail
           xcrun altool --upload-app \
-            -f "$RUNNER_TEMP/2FAuth.xcarchive/Products/Applications/2FAuth.app" \
+            -f "$IPA_PATH" \
             -t ios \
             --apiKey "$APP_STORE_CONNECT_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
@@ -175,4 +290,5 @@ jobs:
           path: |
             ${{ runner.temp }}/semantic-release.log
             ${{ runner.temp }}/xcodebuild-archive.log
+            ${{ runner.temp }}/xcodebuild-export.log
             ${{ runner.temp }}/altool-upload.log
