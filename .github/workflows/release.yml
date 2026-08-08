@@ -80,6 +80,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "$PROVISIONING_PROFILE" ]; then
+            echo "::error::PROVISIONING_PROFILE secret is empty or unavailable"
+            exit 1
+          fi
+
           PROFILE_PATH="$RUNNER_TEMP/release.mobileprovision"
           PROFILE_PLIST="$RUNNER_TEMP/release-profile.plist"
 
