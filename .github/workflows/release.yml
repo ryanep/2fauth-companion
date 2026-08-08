@@ -15,7 +15,7 @@ permissions:
 jobs:
   release:
     name: Build, Export, Upload, Release
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 90
 
     steps:
@@ -74,7 +74,7 @@ jobs:
       - name: Install provisioning profiles
         if: env.NEW_VERSION != ''
         env:
-          PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
+          PROVISIONING_PROFILE_IOS: ${{ secrets.PROVISIONING_PROFILE_IOS }}
           PROVISIONING_PROFILE_WATCH: ${{ secrets.PROVISIONING_PROFILE_WATCH }}
         run: |
           set -euo pipefail
@@ -118,8 +118,8 @@ jobs:
             echo "PROFILE_NAME_${PLATFORM}=$PROFILE_NAME" >> "$GITHUB_ENV"
           }
 
-          if [ -z "${PROVISIONING_PROFILE:-}" ]; then
-            echo "::error::PROVISIONING_PROFILE secret is empty or unavailable"
+          if [ -z "${PROVISIONING_PROFILE_IOS:-}" ]; then
+            echo "::error::PROVISIONING_PROFILE_IOS secret is empty or unavailable"
             exit 1
           fi
           if [ -z "${PROVISIONING_PROFILE_WATCH:-}" ]; then
@@ -127,7 +127,7 @@ jobs:
             exit 1
           fi
 
-          install_profile "IOS" "$PROVISIONING_PROFILE"
+          install_profile "IOS" "$PROVISIONING_PROFILE_IOS"
           install_profile "WATCH" "$PROVISIONING_PROFILE_WATCH"
 
       - name: Dry run — skip publish
@@ -158,6 +158,14 @@ jobs:
 
           echo "Generated ci-release.xcconfig:"
           cat "$RUNNER_TEMP/ci-release.xcconfig"
+
+      - name: Xcode version
+        if: env.NEW_VERSION != ''
+        run: |
+          xcodebuild -version
+          echo "DEVELOPER_DIR: ${DEVELOPER_DIR:-<not set>}"
+          echo "SDK platforms:"
+          xcodebuild -showsdks 2>/dev/null | head -20 || true
 
       - name: Build archive
         if: env.NEW_VERSION != ''
