@@ -78,10 +78,31 @@ jobs:
         env:
           PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
         run: |
+          set -euo pipefail
+
+          if [ -z "$PROVISIONING_PROFILE" ]; then
+            echo "::error::PROVISIONING_PROFILE secret is empty or unavailable"
+            exit 1
+          fi
+
           echo "$PROVISIONING_PROFILE" | base64 --decode > "$RUNNER_TEMP/release.mobileprovision"
-          PROFILE_UUID="$(security cms -D -i "$RUNNER_TEMP/release.mobileprovision" | /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin)"
+
+          if [ ! -s "$RUNNER_TEMP/release.mobileprovision" ]; then
+            echo "::error::Decoded provisioning profile is empty"
+            exit 1
+          fi
+
+          echo "Provisioning profile decoded successfully ($(wc -c < "$RUNNER_TEMP/release.mobileprovision") bytes)"
+
+          PROFILE_UUID="$(
+            security cms -D -i "$RUNNER_TEMP/release.mobileprovision" |
+            /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin
+          )"
+
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$RUNNER_TEMP/release.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          cp "$RUNNER_TEMP/release.mobileprovision" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
 
       - name: Dry run — skip publish
