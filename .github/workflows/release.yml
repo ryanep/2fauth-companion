@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — skip ASC upload and GitHub Release"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, Upload, Release
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install semantic-release
+        run: |
+          npm install -g \
+            semantic-release@24 \
+            @semantic-release/commit-analyzer@13 \
+            @semantic-release/release-notes-generator@14 \
+            @semantic-release/github@11
+
+      - name: Determine next version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          semantic-release --dry-run 2>&1 | tee "$RUNNER_TEMP/semantic-release.log"
+          if grep -qE 'There are no relevant changes|no new version is released' "$RUNNER_TEMP/semantic-release.log"; then
+            echo "No releasable commits since last release. Nothing to do."
+            exit 0
+          fi
+          NEW_VERSION="$(grep -oE 'The next release version is [0-9]+\.[0-9]+\.[0-9]+' "$RUNNER_TEMP/semantic-release.log" | tail -1 || true)"
+          if [ -z "$NEW_VERSION" ]; then
+            echo "::error::semantic-release did not report a next version. See the semantic-release log in artifacts." >&2
+            exit 1
+          fi
+          NEW_VERSION="$(echo "$NEW_VERSION" | sed -E 's/.*is ([0-9]+\.[0-9]+\.[0-9]+)/\1/')"
+          echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install signing certificate
+        if: env.NEW_VERSION != ''
+        env:
+          DISTRIBUTION_CERTIFICATE: ${{ secrets.DISTRIBUTION_CERTIFICATE }}
+          DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.DISTRIBUTION_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$DISTRIBUTION_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 12)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/release.keychain"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/release.keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/release.keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$RUNNER_TEMP/release.keychain" -P "$DISTRIBUTION_CERTIFICATE_PASSWORD" -A -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/release.keychain" >/dev/null 2>&1 || true
+          security list-keychains -d user -s "$RUNNER_TEMP/release.keychain"
+
+      - name: Install provisioning profile
+        if: env.NEW_VERSION != ''
+        env:
+          PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
+        run: |
+          echo "$PROVISIONING_PROFILE" | base64 --decode > "$RUNNER_TEMP/release.mobileprovision"
+          PROFILE_UUID="$(security cms -D -i "$RUNNER_TEMP/release.mobileprovision" | /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin)"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$RUNNER_TEMP/release.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      - name: Dry run — skip publish
+        if: env.NEW_VERSION != '' && inputs.dry_run == true
+        run: |
+          echo "::notice::Dry run mode — skipping App Store Connect upload and GitHub Release."
+
+      - name: Setup App Store Connect API key
+        if: env.NEW_VERSION != '' && inputs.dry_run == false
+        env:
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: |
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$APP_STORE_CONNECT_API_KEY" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
+
+      - name: Build archive
+        if: env.NEW_VERSION != ''
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project "2FAuth.xcodeproj" \
+            -scheme "2FAuth" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/2FAuth.xcarchive" \
+            MARKETING_VERSION="$NEW_VERSION" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=64C39764NA \
+            PROVISIONING_PROFILE="$PROFILE_UUID" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            | tee "$RUNNER_TEMP/xcodebuild-archive.log"
+
+      - name: Upload to App Store Connect
+        if: env.NEW_VERSION != '' && inputs.dry_run == false
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcrun altool --upload-app \
+            -f "$RUNNER_TEMP/2FAuth.xcarchive/Products/Applications/2FAuth.app" \
+            -t ios \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
+            | tee "$RUNNER_TEMP/altool-upload.log"
+
+      - name: Create GitHub Release
+        if: env.NEW_VERSION != '' && inputs.dry_run == false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          semantic-release
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-logs
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/semantic-release.log
+            ${{ runner.temp }}/xcodebuild-archive.log
+            ${{ runner.temp }}/altool-upload.log
