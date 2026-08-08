@@ -74,7 +74,7 @@ jobs:
       - name: Install provisioning profiles
         if: env.NEW_VERSION != ''
         env:
-          PROVISIONING_PROFILE_IOS: ${{ secrets.PROVISIONING_PROFILE_IOS }}
+          PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
           PROVISIONING_PROFILE_WATCH: ${{ secrets.PROVISIONING_PROFILE_WATCH }}
         run: |
           set -euo pipefail
@@ -118,8 +118,8 @@ jobs:
             echo "PROFILE_NAME_${PLATFORM}=$PROFILE_NAME" >> "$GITHUB_ENV"
           }
 
-          if [ -z "${PROVISIONING_PROFILE_IOS:-}" ]; then
-            echo "::error::PROVISIONING_PROFILE_IOS secret is empty or unavailable"
+          if [ -z "${PROVISIONING_PROFILE:-}" ]; then
+            echo "::error::PROVISIONING_PROFILE secret is empty or unavailable"
             exit 1
           fi
           if [ -z "${PROVISIONING_PROFILE_WATCH:-}" ]; then
@@ -127,7 +127,7 @@ jobs:
             exit 1
           fi
 
-          install_profile "IOS" "$PROVISIONING_PROFILE_IOS"
+          install_profile "IOS" "$PROVISIONING_PROFILE"
           install_profile "WATCH" "$PROVISIONING_PROFILE_WATCH"
 
       - name: Dry run — skip publish
