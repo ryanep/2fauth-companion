@@ -267,12 +267,13 @@ jobs:
           echo "Uploading: $IPA_PATH"
 
           set -o pipefail
-          xcrun altool --upload-app \
-            -f "$IPA_PATH" \
-            -t ios \
-            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
-            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
-            | tee "$RUNNER_TEMP/altool-upload.log"
+          xcrun iTMSTransporter \
+            -m upload \
+            -assetFile "$IPA_PATH" \
+            -apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            -apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
+            -v informational \
+            2>&1 | tee "$RUNNER_TEMP/transporter-upload.log"
 
       - name: Create GitHub Release
         if: env.NEW_VERSION != '' && inputs.dry_run == false
@@ -291,4 +292,4 @@ jobs:
             ${{ runner.temp }}/semantic-release.log
             ${{ runner.temp }}/xcodebuild-archive.log
             ${{ runner.temp }}/xcodebuild-export.log
-            ${{ runner.temp }}/altool-upload.log
+            ${{ runner.temp }}/transporter-upload.log
