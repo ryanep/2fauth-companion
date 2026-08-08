@@ -85,24 +85,33 @@ jobs:
             exit 1
           fi
 
-          echo "$PROVISIONING_PROFILE" | base64 --decode > "$RUNNER_TEMP/release.mobileprovision"
+          PROFILE_PATH="$RUNNER_TEMP/release.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/release-profile.plist"
 
-          if [ ! -s "$RUNNER_TEMP/release.mobileprovision" ]; then
+          echo "$PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_PATH"
+
+          if [ ! -s "$PROFILE_PATH" ]; then
             echo "::error::Decoded provisioning profile is empty"
             exit 1
           fi
 
-          echo "Provisioning profile decoded successfully ($(wc -c < "$RUNNER_TEMP/release.mobileprovision") bytes)"
+          echo "Provisioning profile decoded successfully ($(wc -c < "$PROFILE_PATH") bytes)"
 
-          PROFILE_UUID="$(
-            security cms -D -i "$RUNNER_TEMP/release.mobileprovision" |
-            /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin
-          )"
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+
+          if [ ! -s "$PROFILE_PLIST" ]; then
+            echo "::error::security cms failed to decode provisioning profile"
+            exit 1
+          fi
+
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$PROFILE_PLIST")
+
+          echo "Provisioning profile UUID: $PROFILE_UUID"
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$RUNNER_TEMP/release.mobileprovision" \
-            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
 
+          cp "$PROFILE_PATH" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
 
       - name: Dry run — skip publish
