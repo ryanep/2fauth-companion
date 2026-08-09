@@ -19,13 +19,27 @@ jobs:
       - name: Xcode version
         run: xcodebuild -version
 
+      - name: Install Docker runtime
+        run: |
+          set -euo pipefail
+
+          brew install colima docker docker-compose qemu
+
+          docker_cli_plugins="$(brew --prefix)/lib/docker/cli-plugins"
+          mkdir -p "$HOME/.docker"
+          printf '{"cliPluginsExtraDirs":["%s"]}\n' "$docker_cli_plugins" > "$HOME/.docker/config.json"
+          docker compose version
+
       - name: Start Docker
         run: |
           set -euo pipefail
 
-          if ! docker info >/dev/null 2>&1 && [ -d "/Applications/Docker.app" ]; then
-            open -a Docker
-          fi
+          colima start \
+            --runtime docker \
+            --vm-type qemu \
+            --cpu 4 \
+            --memory 8 \
+            --disk 60
 
           for attempt in {1..30}; do
             if docker info >/dev/null 2>&1; then
@@ -105,7 +119,7 @@ jobs:
         with:
           name: screenshots-${{ github.run_number }}
           path: ${{ runner.temp }}/screenshots
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 14
 
       - name: Upload diagnostics
