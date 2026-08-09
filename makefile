@@ -112,7 +112,12 @@ screenshot-review-iphone-run:
 	trap 'cleanup_status_bar 129' HUP; \
 	trap 'cleanup_status_bar 130' INT; \
 	trap 'cleanup_status_bar 143' TERM; \
-	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone"; \
+	if [ "$(SCREENSHOT_SKIP_BUILD)" != "1" ]; then \
+		UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone"; \
+	fi; \
+	if [ "$(SCREENSHOT_BUILD_ONLY)" = "1" ]; then \
+		exit 0; \
+	fi; \
 	xcrun simctl status_bar "$$IPHONE_SIM_ID" override --time "9:41" --dataNetwork "wifi" --wifiMode "active" --wifiBars 3 --cellularMode "active" --cellularBars 4 --operatorName " " --batteryState "discharging" --batteryLevel 100; \
 	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild test-without-building -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone" \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneLightScreenshots \
@@ -143,7 +148,12 @@ screenshot-review-ipad-run:
 	trap 'cleanup_status_bar 129' HUP; \
 	trap 'cleanup_status_bar 130' INT; \
 	trap 'cleanup_status_bar 143' TERM; \
-	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad"; \
+	if [ "$(SCREENSHOT_SKIP_BUILD)" != "1" ]; then \
+		UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad"; \
+	fi; \
+	if [ "$(SCREENSHOT_BUILD_ONLY)" = "1" ]; then \
+		exit 0; \
+	fi; \
 	xcrun simctl status_bar "$$IPAD_SIM_ID" override --time "9:41" --dataNetwork "wifi" --wifiMode "active" --wifiBars 3 --cellularMode "active" --cellularBars 4 --operatorName " " --batteryState "discharging" --batteryLevel 100; \
 	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild test-without-building -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad" \
 		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadLightScreenshots \

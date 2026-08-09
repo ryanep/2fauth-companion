@@ -102,6 +102,18 @@ jobs:
           make -f makefile screenshot-config
           date -u
 
+      - name: Build screenshot bundles
+        env:
+          COMPOSE_PROJECT_NAME: 2fauth-screenshots
+        run: |
+          set -euo pipefail
+          make -f makefile screenshot-review-iphone-run \
+            SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/iphone" \
+            SCREENSHOT_BUILD_ONLY=1
+          make -f makefile screenshot-review-ipad-run \
+            SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/ipad" \
+            SCREENSHOT_BUILD_ONLY=1
+
       - name: Generate screenshots
         env:
           COMPOSE_PROJECT_NAME: 2fauth-screenshots
@@ -113,12 +125,14 @@ jobs:
           date -u > "$RUNNER_TEMP/iphone.log"
           make -f makefile screenshot-review-iphone-run \
             SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/iphone" \
+            SCREENSHOT_SKIP_BUILD=1 \
             >> "$RUNNER_TEMP/iphone.log" 2>&1 &
           iphone_pid=$!
 
           date -u > "$RUNNER_TEMP/ipad.log"
           make -f makefile screenshot-review-ipad-run \
             SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/ipad" \
+            SCREENSHOT_SKIP_BUILD=1 \
             >> "$RUNNER_TEMP/ipad.log" 2>&1 &
           ipad_pid=$!
 
