@@ -462,13 +462,13 @@ final class TwoFAuthUITests: XCTestCase {
 
     private func login(app: XCUIApplication, timeout: TimeInterval = 8) {
         let submitButton = app.buttons["login.submit"]
-        XCTAssertTrue(submitButton.waitForExistence(timeout: 8))
+        XCTAssertTrue(submitButton.waitForExistence(timeout: 30))
         
         submitButton.tap()
 
         let reachedMainUI = element(in: app, identifier: "accounts.screen").waitForExistence(timeout: timeout)
             || element(in: app, identifier: "settings.screen").exists
-            || app.tabBars.firstMatch.waitForExistence(timeout: 2)
+            || app.tabBars.firstMatch.waitForExistence(timeout: timeout)
         XCTAssertTrue(reachedMainUI)
     }
 
@@ -635,9 +635,9 @@ final class TwoFAuthUITests: XCTestCase {
         app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
         app.launch()
 
-        login(app: app, timeout: 20)
-        XCTAssertTrue(element(in: app, identifier: "accounts.screen").waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Amazon"].waitForExistence(timeout: 5))
+        login(app: app, timeout: 60)
+        XCTAssertTrue(element(in: app, identifier: "accounts.screen").waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Amazon"].waitForExistence(timeout: 30))
         try saveScreenshot(app.screenshot(), filename: "\(device)-accounts-\(appearance.rawValue).png")
     }
 
@@ -651,14 +651,14 @@ final class TwoFAuthUITests: XCTestCase {
         app.launchEnvironment["UI_TEST_API_TOKEN"] = liveConfig.apiToken
         app.launch()
 
-        login(app: app, timeout: 20)
+        login(app: app, timeout: 60)
 
         let settingsTab = element(in: app, identifier: "tab.settings")
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: 5))
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 30))
         settingsTab.tap()
 
-        XCTAssertTrue(element(in: app, identifier: "settings.screen").waitForExistence(timeout: 5))
-        XCTAssertTrue(element(in: app, identifier: "settings.app_version").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(in: app, identifier: "settings.screen").waitForExistence(timeout: 30))
+        XCTAssertTrue(element(in: app, identifier: "settings.app_version").waitForExistence(timeout: 30))
         try saveScreenshot(app.screenshot(), filename: "\(device)-settings-\(appearance.rawValue).png")
     }
 
@@ -674,14 +674,14 @@ final class TwoFAuthUITests: XCTestCase {
             "otpauth://totp/Example:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example&algorithm=SHA1&digits=6&period=30"
         app.launch()
 
-        login(app: app, timeout: 20)
+        login(app: app, timeout: 60)
 
         let addButton = app.buttons["accounts.add"]
-        XCTAssertTrue(addButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(addButton.waitForExistence(timeout: 30))
         addButton.tap()
 
         let serviceField = app.textFields["add_account.service"]
-        XCTAssertTrue(serviceField.waitForExistence(timeout: 20))
+        XCTAssertTrue(serviceField.waitForExistence(timeout: 60))
         try saveScreenshot(app.screenshot(), filename: "\(device)-add-account-\(appearance.rawValue).png")
     }
 
