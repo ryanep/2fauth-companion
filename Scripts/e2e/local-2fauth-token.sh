@@ -20,7 +20,9 @@ docker_compose() {
   APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$DOCKER_BIN" compose --project-name "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
 }
 
-APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$UP_SCRIPT" >/dev/null
+if [ "${SKIP_2FAUTH_UP:-0}" != "1" ]; then
+  APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$UP_SCRIPT" >/dev/null
+fi
 
 TOKEN_SCRIPT=$(cat <<'PHP'
 $user = \App\Models\User::where('email', 'testinguser@2fauth.app')->firstOrFail();

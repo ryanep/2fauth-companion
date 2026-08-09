@@ -37,8 +37,8 @@ jobs:
           colima start \
             --runtime docker \
             --vm-type qemu \
-            --cpu 4 \
-            --memory 8 \
+            --cpu 2 \
+            --memory 4 \
             --disk 60
 
           for attempt in {1..30}; do
@@ -91,20 +91,56 @@ jobs:
       - name: Configure test environment
         run: echo "APP_KEY=base64:$(openssl rand -base64 32)" >> "$GITHUB_ENV"
 
-      - name: Generate screenshots
+      - name: Prepare screenshot backend
         env:
           COMPOSE_PROJECT_NAME: 2fauth-screenshots
           SCREENSHOT_OUTPUT_DIR: ${{ runner.temp }}/screenshots
         run: |
+          set -euo pipefail
+          date -u
+          make -f makefile screenshots-backend
+          make -f makefile screenshot-config
+          date -u
+
+      - name: Generate screenshots
+        env:
+          COMPOSE_PROJECT_NAME: 2fauth-screenshots
+        run: |
           set +e
 
-          make -f makefile screenshot-review-iphone 2>&1 | tee "$RUNNER_TEMP/screenshot-generation.log"
-          iphone_status=${PIPESTATUS[0]}
+          mkdir -p "$RUNNER_TEMP/screenshots/iphone" "$RUNNER_TEMP/screenshots/ipad"
 
-          make -f makefile screenshot-review-ipad 2>&1 | tee -a "$RUNNER_TEMP/screenshot-generation.log"
-          ipad_status=${PIPESTATUS[0]}
+          date -u > "$RUNNER_TEMP/iphone.log"
+          make -f makefile screenshot-review-iphone-run \
+            SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/iphone" \
+            >> "$RUNNER_TEMP/iphone.log" 2>&1 &
+          iphone_pid=$!
+
+          date -u > "$RUNNER_TEMP/ipad.log"
+          make -f makefile screenshot-review-ipad-run \
+            SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/ipad" \
+            >> "$RUNNER_TEMP/ipad.log" 2>&1 &
+          ipad_pid=$!
+
+          wait "$iphone_pid"
+          iphone_status=$?
+          wait "$ipad_pid"
+          ipad_status=$?
+
+          {
+            printf '%s\n' '===== iPhone ====='
+            cat "$RUNNER_TEMP/iphone.log"
+            printf '%s\n' '===== iPad ====='
+            cat "$RUNNER_TEMP/ipad.log"
+          } > "$RUNNER_TEMP/screenshot-generation.log"
 
           if [ "$iphone_status" -ne 0 ] || [ "$ipad_status" -ne 0 ]; then
+            exit 1
+          fi
+
+          screenshot_count=$(find "$RUNNER_TEMP/screenshots" -type f -name '*.png' | wc -l | tr -d ' ')
+          if [ "$screenshot_count" -ne 16 ]; then
+            echo "::error::Expected 16 screenshots, found $screenshot_count"
             exit 1
           fi
 
@@ -126,7 +162,7 @@ jobs:
           xcrun simctl list devices available > "$RUNNER_TEMP/simulators.log" 2>&1
 
       - name: Upload screenshots
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-${{ github.run_number }}
@@ -141,6 +177,8 @@ jobs:
           name: screenshot-run-diagnostics-${{ github.run_number }}
           path: |
             ${{ runner.temp }}/screenshot-generation.log
+            ${{ runner.temp }}/iphone.log
+            ${{ runner.temp }}/ipad.log
             ${{ runner.temp }}/2fauth-docker.log
             ${{ runner.temp }}/2fauth-docker-cleanup.log
             ${{ runner.temp }}/simulators.log
