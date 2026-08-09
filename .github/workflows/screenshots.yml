@@ -1,0 +1,122 @@
+name: Generate Screenshots
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    name: Generate iPhone and iPad Screenshots
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Start Docker
+        run: |
+          set -euo pipefail
+
+          if ! docker info >/dev/null 2>&1 && [ -d "/Applications/Docker.app" ]; then
+            open -a Docker
+          fi
+
+          for attempt in {1..30}; do
+            if docker info >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::Docker did not become available on the macOS runner"
+          docker context ls || true
+          exit 1
+
+      - name: Select simulators
+        run: |
+          set -euo pipefail
+
+          xcrun simctl list devices available
+
+          ruby <<'RUBY'
+          require "json"
+
+          devices = JSON.parse(`xcrun simctl list devices available -j`)["devices"]
+
+          def select_device(devices, pattern, label)
+            matches = devices.values.flatten.select do |device|
+              device["isAvailable"] && device["name"].match?(pattern)
+            end
+
+            if matches.empty?
+              warn "::error::No available #{label} simulator matched #{pattern.inspect}"
+              exit 1
+            end
+
+            matches.last
+          end
+
+          iphone = select_device(devices, /\AiPhone Air\z/, "iPhone Air")
+          ipad = select_device(devices, /\AiPad Pro 13-inch/, "13-inch iPad Pro")
+
+          puts "Selected iPhone Air: #{iphone["name"]} (#{iphone["udid"]})"
+          puts "Selected iPad: #{ipad["name"]} (#{ipad["udid"]})"
+
+          File.open(ENV.fetch("GITHUB_ENV"), "a") do |file|
+            file.puts "IPHONE_SIM_ID=#{iphone["udid"]}"
+            file.puts "IPAD_SIM_ID=#{ipad["udid"]}"
+          end
+          RUBY
+
+      - name: Generate screenshots
+        env:
+          COMPOSE_PROJECT_NAME: 2fauth-screenshots
+          SCREENSHOT_OUTPUT_DIR: ${{ runner.temp }}/screenshots
+        run: |
+          set -o pipefail
+          make -f makefile screenshot-review-set 2>&1 | tee "$RUNNER_TEMP/screenshot-generation.log"
+
+      - name: Collect diagnostics and stop services
+        if: always()
+        run: |
+          set +e
+
+          docker compose \
+            --project-name 2fauth-screenshots \
+            -f docker-compose.yml logs \
+            > "$RUNNER_TEMP/2fauth-docker.log" 2>&1
+
+          docker compose \
+            --project-name 2fauth-screenshots \
+            -f docker-compose.yml down --volumes \
+            > "$RUNNER_TEMP/2fauth-docker-cleanup.log" 2>&1
+
+          xcrun simctl list devices available > "$RUNNER_TEMP/simulators.log" 2>&1
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-${{ github.run_number }}
+          path: ${{ runner.temp }}/screenshots
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshot-run-diagnostics-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/screenshot-generation.log
+            ${{ runner.temp }}/2fauth-docker.log
+            ${{ runner.temp }}/2fauth-docker-cleanup.log
+            ${{ runner.temp }}/simulators.log
+          if-no-files-found: ignore
+          retention-days: 14
