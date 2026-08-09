@@ -126,19 +126,14 @@ jobs:
           make -f makefile screenshot-review-iphone-run \
             SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/iphone" \
             SCREENSHOT_SKIP_BUILD=1 \
-            >> "$RUNNER_TEMP/iphone.log" 2>&1 &
-          iphone_pid=$!
+            >> "$RUNNER_TEMP/iphone.log" 2>&1
+          iphone_status=$?
 
           date -u > "$RUNNER_TEMP/ipad.log"
           make -f makefile screenshot-review-ipad-run \
             SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/ipad" \
             SCREENSHOT_SKIP_BUILD=1 \
-            >> "$RUNNER_TEMP/ipad.log" 2>&1 &
-          ipad_pid=$!
-
-          wait "$iphone_pid"
-          iphone_status=$?
-          wait "$ipad_pid"
+            >> "$RUNNER_TEMP/ipad.log" 2>&1
           ipad_status=$?
 
           {
