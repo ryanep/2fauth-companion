@@ -58,7 +58,6 @@
 		AE05CAD1C53B62B89CCA5E80 /* SecurityStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70CF1B7F3AA3C29BFF14C45 /* SecurityStoreTests.swift */; };
 		AEEB6CDAF9ABF05AD1DC1058 /* TwoFAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171B81C8A54E36C07013E50A /* TwoFAuthTests.swift */; };
 		AF896D55046649305031F2C4 /* WatchIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 29F702839F0092BDEC24BBD2 /* WatchIcon.icon */; };
-		B4454765E8FB9E4C6C6DE91E /* watch-sync-payload.json in Resources */ = {isa = PBXBuildFile; fileRef = 716AA7C9094209C1E94ED051 /* watch-sync-payload.json */; };
 		B8A80587DBBCD65FAA6814B1 /* OTPAuthURIValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D99EF35F9A241D2CBE41BA /* OTPAuthURIValidator.swift */; };
 		C02463C0F7ED3C09A0EDEF96 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEE99819453A6510C0DDAA4A /* Models.swift */; };
 		CE6D3E0153A5F9520EEF71ED /* Base32.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E082CCBF54710F464FF9BC0 /* Base32.swift */; };
@@ -153,7 +152,6 @@
 		69CFB693FCAAA6064A7034E0 /* KeychainSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSecretStore.swift; sourceTree = "<group>"; };
 		6B4479DA16277DD3A0027A33 /* QRCodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeScannerView.swift; sourceTree = "<group>"; };
 		6E5A1472BBC4ED57947ADE60 /* AccountRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountRepositoryTests.swift; sourceTree = "<group>"; };
-		716AA7C9094209C1E94ED051 /* watch-sync-payload.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "watch-sync-payload.json"; sourceTree = "<group>"; };
 		74FB010349A7BF026CA7D3B0 /* TwoFAuthUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TwoFAuthUITests.swift; sourceTree = "<group>"; };
 		75666BD3660077B6A3342176 /* BiometricAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricAuthenticator.swift; sourceTree = "<group>"; };
 		7586A01A7FA4BA98A17E55B1 /* 2FAuthUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = 2FAuthUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -320,7 +318,6 @@
 			isa = PBXGroup;
 			children = (
 				EBE037C7BDAFB00A13BB26D7 /* live-config.json */,
-				716AA7C9094209C1E94ED051 /* watch-sync-payload.json */,
 			);
 			path = Generated;
 			sourceTree = "<group>";
@@ -634,7 +631,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				30F2D428B1608D6BDD05558B /* live-config.json in Resources */,
-				B4454765E8FB9E4C6C6DE91E /* watch-sync-payload.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
