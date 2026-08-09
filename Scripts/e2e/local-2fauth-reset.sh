@@ -178,4 +178,7 @@ PHP
 
 docker_compose exec -T 2fauth env XDG_CONFIG_HOME=/tmp php artisan tinker --execute="$SEED_SCRIPT"
 
+# Refresh Passport and cached configuration after reset-testing clears them.
+APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$UP_SCRIPT"
+
 APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$PREFLIGHT_SCRIPT"
