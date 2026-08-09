@@ -88,13 +88,25 @@ jobs:
           end
           RUBY
 
+      - name: Configure test environment
+        run: echo "APP_KEY=base64:$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
       - name: Generate screenshots
         env:
           COMPOSE_PROJECT_NAME: 2fauth-screenshots
           SCREENSHOT_OUTPUT_DIR: ${{ runner.temp }}/screenshots
         run: |
-          set -o pipefail
-          make -f makefile screenshot-review-set 2>&1 | tee "$RUNNER_TEMP/screenshot-generation.log"
+          set +e
+
+          make -f makefile screenshot-review-iphone 2>&1 | tee "$RUNNER_TEMP/screenshot-generation.log"
+          iphone_status=${PIPESTATUS[0]}
+
+          make -f makefile screenshot-review-ipad 2>&1 | tee -a "$RUNNER_TEMP/screenshot-generation.log"
+          ipad_status=${PIPESTATUS[0]}
+
+          if [ "$iphone_status" -ne 0 ] || [ "$ipad_status" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Collect diagnostics and stop services
         if: always()
