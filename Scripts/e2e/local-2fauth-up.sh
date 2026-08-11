@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
-COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
+COMPOSE_FILE=${COMPOSE_FILE:-"$ROOT_DIR/docker-compose.yml"}
 TWOFAUTH_PORT=${TWOFAUTH_PORT:-8000}
 BASE_URL=${TWOFAUTH_BASE_URL:-http://127.0.0.1:${TWOFAUTH_PORT}}
 APP_KEY=${APP_KEY:-base64:$(openssl rand -base64 32)}

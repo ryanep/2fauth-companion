@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
-COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
+COMPOSE_FILE=${COMPOSE_FILE:-"$ROOT_DIR/docker-compose.yml"}
 PREFLIGHT_SCRIPT="$SCRIPT_DIR/local-2fauth-preflight.sh"
 UP_SCRIPT="$SCRIPT_DIR/local-2fauth-up.sh"
 DOCKER_BIN=${DOCKER_BIN:-/Applications/Docker.app/Contents/Resources/bin/docker}
@@ -21,7 +21,7 @@ docker_compose() {
   APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$DOCKER_BIN" compose --project-name "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
 }
 
-APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$UP_SCRIPT"
+APP_KEY="$APP_KEY" COMPOSE_FILE="$COMPOSE_FILE" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$UP_SCRIPT"
 
 docker_compose exec -T 2fauth php artisan 2fauth:reset-testing --no-confirm
 
@@ -179,6 +179,6 @@ PHP
 docker_compose exec -T 2fauth env XDG_CONFIG_HOME=/tmp php artisan tinker --execute="$SEED_SCRIPT"
 
 # Refresh Passport and cached configuration after reset-testing clears them.
-APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$UP_SCRIPT"
+APP_KEY="$APP_KEY" COMPOSE_FILE="$COMPOSE_FILE" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$UP_SCRIPT"
 
 APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$PREFLIGHT_SCRIPT"

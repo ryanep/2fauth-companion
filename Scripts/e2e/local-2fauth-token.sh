@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
-COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
+COMPOSE_FILE=${COMPOSE_FILE:-"$ROOT_DIR/docker-compose.yml"}
 UP_SCRIPT="$SCRIPT_DIR/local-2fauth-up.sh"
 DOCKER_BIN=${DOCKER_BIN:-/Applications/Docker.app/Contents/Resources/bin/docker}
 TWOFAUTH_PORT=${TWOFAUTH_PORT:-8000}
@@ -21,7 +21,7 @@ docker_compose() {
 }
 
 if [ "${SKIP_2FAUTH_UP:-0}" != "1" ]; then
-  APP_KEY="$APP_KEY" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$UP_SCRIPT" >/dev/null
+  APP_KEY="$APP_KEY" COMPOSE_FILE="$COMPOSE_FILE" TWOFAUTH_BASE_URL="$BASE_URL" TWOFAUTH_PORT="$TWOFAUTH_PORT" "$UP_SCRIPT" >/dev/null
 fi
 
 TOKEN_SCRIPT=$(cat <<'PHP'
