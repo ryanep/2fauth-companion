@@ -4,7 +4,7 @@ TWOFAUTH_PORT ?= 8000
 TWOFAUTH_BASE_URL ?= http://127.0.0.1:$(TWOFAUTH_PORT)
 APP_KEY ?= base64:$(shell openssl rand -base64 32)
 
-.PHONY: 2fauth-up 2fauth-reset 2fauth-token 2fauth-preflight 2fauth-preflight-bad-token ui-test-live ui-test-live-ipad watch-e2e-live e2e-live screenshot-review-set screenshot-review-iphone screenshot-review-ipad
+.PHONY: 2fauth-up 2fauth-reset 2fauth-token 2fauth-preflight 2fauth-preflight-bad-token ui-test-live ui-test-live-ipad watch-e2e-live e2e-live screenshots-backend screenshot-config screenshot-review-set screenshot-review-iphone screenshot-review-iphone-run screenshot-review-ipad screenshot-review-ipad-run
 
 2fauth-up:
 	APP_KEY="$(APP_KEY)" TWOFAUTH_BASE_URL="$(TWOFAUTH_BASE_URL)" TWOFAUTH_PORT="$(TWOFAUTH_PORT)" ./Scripts/e2e/local-2fauth-up.sh
@@ -72,7 +72,24 @@ watch-e2e-live: 2fauth-reset 2fauth-preflight
 
 e2e-live: ui-test-live
 
-screenshot-review-iphone: 2fauth-reset 2fauth-preflight
+screenshots-backend:
+	APP_KEY="$(APP_KEY)" TWOFAUTH_BASE_URL="$(TWOFAUTH_BASE_URL)" TWOFAUTH_PORT="$(TWOFAUTH_PORT)" ./Scripts/e2e/local-2fauth-reset.sh
+
+screenshot-config:
+	@set -eu; \
+	if [ -z "$${SCREENSHOT_OUTPUT_DIR:-}" ]; then \
+		printf '%s\n' "Set SCREENSHOT_OUTPUT_DIR to a writable folder" >&2; \
+		exit 1; \
+	fi; \
+	mkdir -p "Tests/UI/Generated" "$${SCREENSHOT_OUTPUT_DIR}"; \
+	UI_TEST_BASE_URL="$${UI_TEST_BASE_URL:-$(TWOFAUTH_BASE_URL)}"; \
+	UI_TEST_API_TOKEN="$${UI_TEST_API_TOKEN:-$$(APP_KEY="$(APP_KEY)" TWOFAUTH_BASE_URL="$(TWOFAUTH_BASE_URL)" TWOFAUTH_PORT="$(TWOFAUTH_PORT)" SKIP_2FAUTH_UP=1 ./Scripts/e2e/local-2fauth-token.sh | tr -d '\r\n')}"; \
+	printf '{"baseURL":"%s","apiToken":"%s"}\n' "$$UI_TEST_BASE_URL" "$$UI_TEST_API_TOKEN" > "Tests/UI/Generated/live-config.json"; \
+	printf '%s\n' "$$SCREENSHOT_OUTPUT_DIR" > "Tests/UI/Generated/screenshot-output-dir.txt"
+
+screenshot-review-iphone: screenshots-backend screenshot-config screenshot-review-iphone-run
+
+screenshot-review-iphone-run:
 	@set -eu; \
 	if [ -z "$${SCREENSHOT_OUTPUT_DIR:-}" ]; then \
 		printf '%s\n' "Set SCREENSHOT_OUTPUT_DIR to a writable folder" >&2; \
@@ -82,11 +99,7 @@ screenshot-review-iphone: 2fauth-reset 2fauth-preflight
 		printf '%s\n' "Set IPHONE_SIM_ID to an iPhone simulator UDID" >&2; \
 		exit 1; \
 	fi; \
-	mkdir -p "Tests/UI/Generated" "$$SCREENSHOT_OUTPUT_DIR"; \
-	UI_TEST_BASE_URL="$${UI_TEST_BASE_URL:-$(TWOFAUTH_BASE_URL)}"; \
-	UI_TEST_API_TOKEN="$${UI_TEST_API_TOKEN:-$$(APP_KEY="$(APP_KEY)" TWOFAUTH_BASE_URL="$(TWOFAUTH_BASE_URL)" TWOFAUTH_PORT="$(TWOFAUTH_PORT)" ./Scripts/e2e/local-2fauth-token.sh | tr -d '\r\n')}"; \
-	printf '{"baseURL":"%s","apiToken":"%s"}\n' "$$UI_TEST_BASE_URL" "$$UI_TEST_API_TOKEN" > "Tests/UI/Generated/live-config.json"; \
-	printf '%s\n' "$$SCREENSHOT_OUTPUT_DIR" > "Tests/UI/Generated/screenshot-output-dir.txt"; \
+	mkdir -p "$$SCREENSHOT_OUTPUT_DIR"; \
 	xcrun simctl boot "$$IPHONE_SIM_ID" >/dev/null 2>&1 || true; \
 	xcrun simctl bootstatus "$$IPHONE_SIM_ID" -b; \
 	cleanup_status_bar() { \
@@ -99,19 +112,20 @@ screenshot-review-iphone: 2fauth-reset 2fauth-preflight
 	trap 'cleanup_status_bar 129' HUP; \
 	trap 'cleanup_status_bar 130' INT; \
 	trap 'cleanup_status_bar 143' TERM; \
-	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone"; \
+	if [ "$(SCREENSHOT_SKIP_BUILD)" != "1" ]; then \
+		UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone"; \
+	fi; \
+	if [ "$(SCREENSHOT_BUILD_ONLY)" = "1" ]; then \
+		exit 0; \
+	fi; \
 	xcrun simctl status_bar "$$IPHONE_SIM_ID" override --time "9:41" --dataNetwork "wifi" --wifiMode "active" --wifiBars 3 --cellularMode "active" --cellularBars 4 --operatorName " " --batteryState "discharging" --batteryLevel 100; \
-	xcodebuild test-without-building -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone" \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneLoginLightScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneLoginDarkScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneAccountsLightScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneAccountsDarkScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneAddAccountLightScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneAddAccountDarkScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneSettingsLightScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneSettingsDarkScreenshot
+	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild test-without-building -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPHONE_SIM_ID" -derivedDataPath ".build/screenshots-iphone" \
+		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneLightScreenshots \
+		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPhoneDarkScreenshots
 
-screenshot-review-ipad: 2fauth-reset 2fauth-preflight
+screenshot-review-ipad: screenshots-backend screenshot-config screenshot-review-ipad-run
+
+screenshot-review-ipad-run:
 	@set -eu; \
 	if [ -z "$${SCREENSHOT_OUTPUT_DIR:-}" ]; then \
 		printf '%s\n' "Set SCREENSHOT_OUTPUT_DIR to a writable folder" >&2; \
@@ -121,11 +135,7 @@ screenshot-review-ipad: 2fauth-reset 2fauth-preflight
 		printf '%s\n' "Set IPAD_SIM_ID to an iPad simulator UDID" >&2; \
 		exit 1; \
 	fi; \
-	mkdir -p "Tests/UI/Generated" "$$SCREENSHOT_OUTPUT_DIR"; \
-	UI_TEST_BASE_URL="$${UI_TEST_BASE_URL:-$(TWOFAUTH_BASE_URL)}"; \
-	UI_TEST_API_TOKEN="$${UI_TEST_API_TOKEN:-$$(APP_KEY="$(APP_KEY)" TWOFAUTH_BASE_URL="$(TWOFAUTH_BASE_URL)" TWOFAUTH_PORT="$(TWOFAUTH_PORT)" ./Scripts/e2e/local-2fauth-token.sh | tr -d '\r\n')}"; \
-	printf '{"baseURL":"%s","apiToken":"%s"}\n' "$$UI_TEST_BASE_URL" "$$UI_TEST_API_TOKEN" > "Tests/UI/Generated/live-config.json"; \
-	printf '%s\n' "$$SCREENSHOT_OUTPUT_DIR" > "Tests/UI/Generated/screenshot-output-dir.txt"; \
+	mkdir -p "$$SCREENSHOT_OUTPUT_DIR"; \
 	xcrun simctl boot "$$IPAD_SIM_ID" >/dev/null 2>&1 || true; \
 	xcrun simctl bootstatus "$$IPAD_SIM_ID" -b; \
 	cleanup_status_bar() { \
@@ -138,16 +148,15 @@ screenshot-review-ipad: 2fauth-reset 2fauth-preflight
 	trap 'cleanup_status_bar 129' HUP; \
 	trap 'cleanup_status_bar 130' INT; \
 	trap 'cleanup_status_bar 143' TERM; \
-	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad"; \
+	if [ "$(SCREENSHOT_SKIP_BUILD)" != "1" ]; then \
+		UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild build-for-testing -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad"; \
+	fi; \
+	if [ "$(SCREENSHOT_BUILD_ONLY)" = "1" ]; then \
+		exit 0; \
+	fi; \
 	xcrun simctl status_bar "$$IPAD_SIM_ID" override --time "9:41" --dataNetwork "wifi" --wifiMode "active" --wifiBars 3 --cellularMode "active" --cellularBars 4 --operatorName " " --batteryState "discharging" --batteryLevel 100; \
-	xcodebuild test-without-building -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad" \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadLoginLightScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadLoginDarkScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadAccountsLightScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadAccountsDarkScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadAddAccountLightScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadAddAccountDarkScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadSettingsLightScreenshot \
-		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadSettingsDarkScreenshot
+	UI_TEST_SCREENSHOT_OUTPUT_DIR="$$SCREENSHOT_OUTPUT_DIR" xcodebuild test-without-building -project "2FAuth.xcodeproj" -scheme "2FAuth" -destination "platform=iOS Simulator,id=$$IPAD_SIM_ID" -derivedDataPath ".build/screenshots-ipad" \
+		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadLightScreenshots \
+		-only-testing:2FAuthUITests/TwoFAuthUITests/testCaptureIPadDarkScreenshots
 
-screenshot-review-set: screenshot-review-iphone screenshot-review-ipad
+screenshot-review-set: screenshots-backend screenshot-config screenshot-review-iphone-run screenshot-review-ipad-run
