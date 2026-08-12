@@ -103,8 +103,8 @@ jobs:
           colima start \
             --runtime docker \
             --vm-type qemu \
-            --cpu 1 \
-            --memory 2 \
+            --cpu 2 \
+            --memory 3 \
             --disk 60
 
           for attempt in {1..30}; do
