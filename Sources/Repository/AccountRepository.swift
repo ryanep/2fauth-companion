@@ -4,6 +4,7 @@ import SwiftData
 enum SyncResult {
     case success
     case unauthorized
+    case forbidden
     case transient(String)
     case stale
 }
@@ -54,7 +55,7 @@ final class DefaultAccountRepository: AccountRepository {
         } catch APIError.unauthorized {
             return isCurrentSession() ? .unauthorized : .stale
         } catch APIError.forbidden {
-            return isCurrentSession() ? .unauthorized : .stale
+            return isCurrentSession() ? .forbidden : .stale
         } catch APIError.server(let code) {
             ErrorReporter.report("repository.sync_server_error", metadata: ["status": String(code)])
             return .transient(

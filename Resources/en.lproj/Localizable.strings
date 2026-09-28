@@ -8,6 +8,7 @@
 "login.warning.insecure_transport" = "Warning: HTTP connections are unencrypted. Use HTTPS when possible.";
 "login.error.secure_store_failed" = "Could not store credentials securely.";
 "login.error.invalid_credentials" = "Login failed. Check API key and server URL.";
+"login.error.access_denied" = "Login failed. Access denied.";
 "login.error.server_unreachable" = "Could not reach server: %@";
 
 "accounts.title" = "Accounts";
@@ -94,6 +95,7 @@
 
 "sync.error.biometric_failed" = "Biometric unlock failed.";
 "sync.status.offline_mode" = "Offline mode: %@";
+"sync.status.access_denied" = "Sync failed. Access denied.";
 "sync.status.session_expired" = "Session expired. Please log in again.";
 "sync.error.cache_clear_failed" = "Could not clear local cache.";
 "sync.error.server_error" = "Server error (%d)";

@@ -696,6 +696,44 @@ final class AppModelStateMachineTests: XCTestCase {
         XCTAssertNil(secretStore.loadEncryptionKey())
     }
 
+    func testSyncNowForbiddenPreservesSessionAndCachedAccounts() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+        try secretStore.saveAPIKey("api-key")
+        let encryptedSecret = try AESGCMCryptoStore(secretStore: secretStore).encrypt("JBSWY3DPEHPK3PXP")
+        setup.appModel.sessionState = .unlocked
+        setup.modelContext.insert(AccountEntity(
+            remoteID: 1,
+            service: "GitHub",
+            account: "ryan",
+            otpType: "totp",
+            digits: 6,
+            algorithm: "SHA1",
+            period: 30,
+            encryptedSecret: encryptedSecret,
+            updatedAt: Date()
+        ))
+        try setup.modelContext.save()
+
+        let result = await setup.appModel.syncNow()
+
+        guard case .some(.forbidden) = result else {
+            return XCTFail("Expected forbidden sync result")
+        }
+        XCTAssertEqual(setup.appModel.sessionState, .degradedOffline)
+        XCTAssertNotNil(setup.appModel.syncMessage)
+        XCTAssertFalse(setup.configStore.requiresRelogin)
+        XCTAssertEqual(secretStore.loadAPIKey(), "api-key")
+        XCTAssertNotNil(secretStore.loadEncryptionKey())
+        let cachedAccount = try XCTUnwrap(setup.modelContext.fetch(FetchDescriptor<AccountEntity>()).first)
+        XCTAssertNotNil(setup.appModel.generateTOTP(for: cachedAccount))
+    }
+
     func testSyncNowUnauthorizedClearsLastSyncAndKeepsConfiguredBaseURL() async throws {
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
@@ -2467,6 +2505,41 @@ final class BackgroundSyncManagerBehaviorTests: XCTestCase {
         let hasCachedData = await cache.hasCachedData(for: iconURL)
         XCTAssertFalse(hasCachedData)
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testRunBackgroundSyncForbiddenPreservesSessionAndCachedAccounts() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        let setup = try makeSUT(testName: #function)
+        setup.configStore.baseURLString = "https://example.com"
+        try secretStore.saveAPIKey("api-key")
+        let cryptoStore = AESGCMCryptoStore(secretStore: secretStore)
+        let encryptedSecret = try cryptoStore.encrypt("JBSWY3DPEHPK3PXP")
+        let context = ModelContext(setup.modelContainer)
+        context.insert(AccountEntity(
+            remoteID: 1,
+            service: "GitHub",
+            account: "ryan",
+            otpType: "totp",
+            digits: 6,
+            algorithm: "SHA1",
+            period: 30,
+            encryptedSecret: encryptedSecret,
+            updatedAt: Date()
+        ))
+        try context.save()
+
+        let success = await setup.manager.runBackgroundSync(isCancelled: { false })
+
+        XCTAssertTrue(success)
+        XCTAssertFalse(setup.configStore.requiresRelogin)
+        XCTAssertEqual(secretStore.loadAPIKey(), "api-key")
+        XCTAssertNotNil(secretStore.loadEncryptionKey())
+        let cachedAccount = try XCTUnwrap(context.fetch(FetchDescriptor<AccountEntity>()).first)
+        XCTAssertEqual(try cryptoStore.decrypt(try XCTUnwrap(cachedAccount.encryptedSecret)), "JBSWY3DPEHPK3PXP")
     }
 
     func testBackgroundUnauthorizedAdvancesSessionRevisionOnce() async throws {

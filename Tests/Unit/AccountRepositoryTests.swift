@@ -130,7 +130,7 @@ final class AccountRepositoryTests: XCTestCase {
         XCTAssertTrue(matches(result, expected: .unauthorized))
     }
 
-    func testSyncAccountsMapsUnauthorizedFor403() async throws {
+    func testSyncAccountsMapsForbiddenFor403() async throws {
         MockURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!
             return (response, Data())
@@ -148,7 +148,9 @@ final class AccountRepositoryTests: XCTestCase {
             isCurrentSession: { true }
         )
 
-        XCTAssertTrue(matches(result, expected: .unauthorized))
+        guard case .forbidden = result else {
+            return XCTFail("Expected forbidden sync result")
+        }
     }
 
     func testSyncAccountsMapsServerErrorToLocalizedMessage() async throws {
