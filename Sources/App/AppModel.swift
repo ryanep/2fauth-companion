@@ -225,6 +225,8 @@ final class AppModel: ObservableObject {
             return
         case .unauthorized:
             loginError = String(localized: "login.error.invalid_credentials")
+        case .forbidden:
+            loginError = String(localized: "login.error.access_denied")
         case .transient(let reason):
             ErrorReporter.report("login.sync_transient")
             loginError = String.localizedStringWithFormat(
@@ -341,6 +343,13 @@ final class AppModel: ObservableObject {
         case .unauthorized:
             ErrorReporter.report("sync.unauthorized")
             await enforceReloginWipe()
+        case .forbidden:
+            ErrorReporter.report("sync.forbidden")
+            unlockedState = .degradedOffline
+            if sessionState != .locked {
+                sessionState = .degradedOffline
+            }
+            syncMessage = String(localized: "sync.status.access_denied")
         case .transient(let reason):
             ErrorReporter.report("sync.transient")
             unlockedState = .degradedOffline
@@ -697,7 +706,7 @@ extension AppModel {
             return true
         case .stale:
             throw CancellationError()
-        case .transient:
+        case .transient, .forbidden:
             scheduleBackgroundRefresh()
             pushWatchSnapshot()
             return false

@@ -171,6 +171,9 @@ import SwiftData
                 clearWatchSnapshot()
                 ErrorReporter.report("background.sync_unauthorized_relogin")
                 return true
+            case .forbidden:
+                report("background.sync_forbidden", [:])
+                return true
             case .transient:
                 return true
             }
