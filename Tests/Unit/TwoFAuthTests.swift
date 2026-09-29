@@ -466,6 +466,25 @@ final class TwoFAuthTests: XCTestCase {
         XCTAssertEqual(uriSecrets, fieldSecrets)
     }
 
+    func testLocal2FAuthScriptsForwardComposeFileToUpScript() throws {
+        let testsDirectoryURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let repositoryRootURL = testsDirectoryURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        for scriptName in ["local-2fauth-reset.sh", "local-2fauth-token.sh"] {
+            let scriptURL = repositoryRootURL.appendingPathComponent("Scripts/e2e/\(scriptName)")
+            let script = try String(contentsOf: scriptURL, encoding: .utf8)
+            let upInvocations = script.components(separatedBy: .newlines).filter { $0.contains("\"$UP_SCRIPT\"") }
+
+            XCTAssertFalse(upInvocations.isEmpty, "Expected an UP_SCRIPT invocation in \(scriptName)")
+            XCTAssertTrue(
+                upInvocations.allSatisfy { $0.contains(#"COMPOSE_FILE="$COMPOSE_FILE""#) },
+                "Expected every UP_SCRIPT invocation in \(scriptName) to forward COMPOSE_FILE"
+            )
+        }
+    }
+
     private func makeConfigStore(testName: String, reset: Bool = true) -> UserDefaultsAppConfigStore {
         let suiteName = "TwoFAuthTests.\(testName)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

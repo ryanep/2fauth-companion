@@ -19,39 +19,6 @@ jobs:
       - name: Xcode version
         run: xcodebuild -version
 
-      - name: Install Docker runtime
-        run: |
-          set -euo pipefail
-
-          brew install colima docker docker-compose qemu
-
-          docker_cli_plugins="$(brew --prefix)/lib/docker/cli-plugins"
-          mkdir -p "$HOME/.docker"
-          printf '{"cliPluginsExtraDirs":["%s"]}\n' "$docker_cli_plugins" > "$HOME/.docker/config.json"
-          docker compose version
-
-      - name: Start Docker
-        run: |
-          set -euo pipefail
-
-          colima start \
-            --runtime docker \
-            --vm-type qemu \
-            --cpu 4 \
-            --memory 8 \
-            --disk 60
-
-          for attempt in {1..30}; do
-            if docker info >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 2
-          done
-
-          echo "::error::Docker did not become available on the macOS runner"
-          docker context ls || true
-          exit 1
-
       - name: Select simulators
         run: |
           set -euo pipefail
@@ -88,13 +55,179 @@ jobs:
           end
           RUBY
 
-      - name: Generate screenshots
+      - name: Configure test environment
+        run: |
+          set -euo pipefail
+
+          echo "APP_KEY=base64:$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/screenshots"
+          make -f makefile screenshot-config \
+            SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots" \
+            UI_TEST_API_TOKEN=build-placeholder-token
+
+      - name: Build screenshot bundles
+        run: |
+          set -euo pipefail
+
+          cleanup_simulators() {
+            xcrun simctl shutdown "$IPHONE_SIM_ID" >/dev/null 2>&1 || true
+            xcrun simctl shutdown "$IPAD_SIM_ID" >/dev/null 2>&1 || true
+          }
+          trap cleanup_simulators EXIT
+
+          make -f makefile screenshot-review-iphone-run \
+            SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/iphone" \
+            SCREENSHOT_BUILD_ONLY=1
+          xcrun simctl shutdown "$IPHONE_SIM_ID" >/dev/null 2>&1 || true
+
+          make -f makefile screenshot-review-ipad-run \
+            SCREENSHOT_OUTPUT_DIR="$RUNNER_TEMP/screenshots/ipad" \
+            SCREENSHOT_BUILD_ONLY=1
+          xcrun simctl shutdown "$IPAD_SIM_ID" >/dev/null 2>&1 || true
+
+      - name: Install Docker runtime
+        run: |
+          set -euo pipefail
+
+          brew install colima docker docker-compose qemu
+
+          docker_cli_plugins="$(brew --prefix)/lib/docker/cli-plugins"
+          mkdir -p "$HOME/.docker"
+          printf '{"cliPluginsExtraDirs":["%s"]}\n' "$docker_cli_plugins" > "$HOME/.docker/config.json"
+          docker compose version
+
+      - name: Start Docker
+        run: |
+          set -euo pipefail
+
+          colima start \
+            --runtime docker \
+            --vm-type qemu \
+            --cpu 2 \
+            --memory 3 \
+            --disk 60
+
+          for attempt in {1..30}; do
+            if docker info >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::Docker did not become available on the macOS runner"
+              docker context ls || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+          compose_file="$RUNNER_TEMP/docker-compose.screenshots.yml"
+          docker compose \
+            --project-name 2fauth-screenshots \
+            -f docker-compose.yml \
+            -f docker-compose.screenshots.yml \
+            config > "$compose_file"
+          echo "COMPOSE_FILE=$compose_file" >> "$GITHUB_ENV"
+
+      - name: Prepare screenshot backend
         env:
           COMPOSE_PROJECT_NAME: 2fauth-screenshots
           SCREENSHOT_OUTPUT_DIR: ${{ runner.temp }}/screenshots
         run: |
-          set -o pipefail
-          make -f makefile screenshot-review-set 2>&1 | tee "$RUNNER_TEMP/screenshot-generation.log"
+          set -euo pipefail
+
+          make -f makefile screenshots-backend
+          make -f makefile screenshot-config
+
+          api_token="$(ruby -rjson -e 'puts JSON.parse(File.read("Tests/UI/Generated/live-config.json")).fetch("apiToken")')"
+          echo "UI_TEST_API_TOKEN=$api_token" >> "$GITHUB_ENV"
+
+      - name: Generate screenshots
+        env:
+          COMPOSE_PROJECT_NAME: 2fauth-screenshots
+        run: |
+          set +e
+
+          mkdir -p "$RUNNER_TEMP/screenshots/iphone" "$RUNNER_TEMP/screenshots/ipad"
+
+          check_backend() {
+            log_path=$1
+            if make -f makefile 2fauth-preflight >> "$log_path" 2>&1; then
+              return 0
+            fi
+
+            printf '%s\n' 'Backend preflight failed; restarting 2FAuth once.' >> "$log_path"
+            docker compose \
+              --project-name 2fauth-screenshots \
+              -f "$COMPOSE_FILE" \
+              restart 2fauth >> "$log_path" 2>&1
+            docker compose \
+              --project-name 2fauth-screenshots \
+              -f "$COMPOSE_FILE" \
+              up -d --wait >> "$log_path" 2>&1
+
+            for attempt in {1..15}; do
+              if make -f makefile 2fauth-preflight >> "$log_path" 2>&1; then
+                return 0
+              fi
+              sleep 2
+            done
+            return 1
+          }
+
+          run_lane() {
+            lane=$1
+            simulator_id=$2
+            target=$3
+            output_dir=$4
+            log_path=$5
+
+            date -u > "$log_path"
+            check_backend "$log_path"
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              make -f makefile "$target" \
+                SCREENSHOT_OUTPUT_DIR="$output_dir" \
+                SCREENSHOT_SKIP_BUILD=1 \
+                >> "$log_path" 2>&1
+              status=$?
+            fi
+
+            xcrun simctl shutdown "$simulator_id" >> "$log_path" 2>&1 || true
+            printf '%s lane status: %s\n' "$lane" "$status" >> "$log_path"
+            return "$status"
+          }
+
+          run_lane \
+            iphone \
+            "$IPHONE_SIM_ID" \
+            screenshot-review-iphone-run \
+            "$RUNNER_TEMP/screenshots/iphone" \
+            "$RUNNER_TEMP/iphone.log"
+          iphone_status=$?
+
+          run_lane \
+            ipad \
+            "$IPAD_SIM_ID" \
+            screenshot-review-ipad-run \
+            "$RUNNER_TEMP/screenshots/ipad" \
+            "$RUNNER_TEMP/ipad.log"
+          ipad_status=$?
+
+          {
+            printf '%s\n' '===== iPhone ====='
+            cat "$RUNNER_TEMP/iphone.log"
+            printf '%s\n' '===== iPad ====='
+            cat "$RUNNER_TEMP/ipad.log"
+          } > "$RUNNER_TEMP/screenshot-generation.log"
+
+          if [ "$iphone_status" -ne 0 ] || [ "$ipad_status" -ne 0 ]; then
+            exit 1
+          fi
+
+          screenshot_count=$(find "$RUNNER_TEMP/screenshots" -type f -name '*.png' | wc -l | tr -d ' ')
+          if [ "$screenshot_count" -ne 16 ]; then
+            echo "::error::Expected 16 screenshots, found $screenshot_count"
+            exit 1
+          fi
 
       - name: Collect diagnostics and stop services
         if: always()
@@ -103,18 +236,19 @@ jobs:
 
           docker compose \
             --project-name 2fauth-screenshots \
-            -f docker-compose.yml logs \
+            -f "${COMPOSE_FILE:-docker-compose.yml}" logs \
             > "$RUNNER_TEMP/2fauth-docker.log" 2>&1
 
           docker compose \
             --project-name 2fauth-screenshots \
-            -f docker-compose.yml down --volumes \
+            -f "${COMPOSE_FILE:-docker-compose.yml}" down --volumes \
             > "$RUNNER_TEMP/2fauth-docker-cleanup.log" 2>&1
 
           xcrun simctl list devices available > "$RUNNER_TEMP/simulators.log" 2>&1
+          colima stop > "$RUNNER_TEMP/colima-cleanup.log" 2>&1 || true
 
       - name: Upload screenshots
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-${{ github.run_number }}
@@ -129,8 +263,11 @@ jobs:
           name: screenshot-run-diagnostics-${{ github.run_number }}
           path: |
             ${{ runner.temp }}/screenshot-generation.log
+            ${{ runner.temp }}/iphone.log
+            ${{ runner.temp }}/ipad.log
             ${{ runner.temp }}/2fauth-docker.log
             ${{ runner.temp }}/2fauth-docker-cleanup.log
+            ${{ runner.temp }}/colima-cleanup.log
             ${{ runner.temp }}/simulators.log
           if-no-files-found: ignore
           retention-days: 14

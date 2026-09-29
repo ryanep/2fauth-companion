@@ -38,6 +38,7 @@ struct AddAccountView: View {
                             cancelPreview()
                             dismiss()
                         }
+                        .accessibilityIdentifier("add_account.cancel")
                         .disabled(isSaving)
                     }
                     ToolbarItem(placement: .confirmationAction) {
